@@ -23,7 +23,7 @@ class MainApplication:
             root: главное окно tkinter
         """
         self.root = root
-        self.root.title("🏥 Регистратура поликлиники")
+        self.root.title("Регистратура поликлиники")
         self.root.geometry("1200x700")
         
         # Центрируем окно на экране
@@ -127,14 +127,14 @@ class MainApplication:
         # Кнопка добавления пациента
         ttk.Button(
             top_frame, 
-            text="➕ Добавить пациента", 
+            text="Добавить пациента", 
             command=self.open_add_patient_dialog
         ).pack(side='left', padx=2)
         
         # Кнопка обновления списка
         ttk.Button(
             top_frame, 
-            text="🔄 Обновить список", 
+            text="Обновить список", 
             command=self.load_patients
         ).pack(side='left', padx=2)
         
@@ -340,7 +340,7 @@ class MainApplication:
     def create_doctors_tab(self):
         """Создаёт вкладку со списком врачей"""
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="👨‍⚕️ Врачи")
+        self.notebook.add(tab, text="Врачи")
         
         # Таблица врачей
         columns = ('id', 'ФИО', 'Специальность', 'Кабинет')
@@ -413,7 +413,7 @@ class MainApplication:
     def create_new_appointment_tab(self):
         """Создаёт вкладку для создания новой записи"""
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="➕ Новая запись")
+        self.notebook.add(tab, text="Новая запись")
         
         # Основной контейнер с отступами
         main_frame = ttk.Frame(tab, padding="20")
@@ -499,7 +499,7 @@ class MainApplication:
         # ========================================
         ttk.Button(
             main_frame, 
-            text="✅ Записать на приём", 
+            text="Записать на приём", 
             command=self.create_appointment,
             style='Action.TButton'
         ).grid(row=6, column=1, pady=20)
@@ -639,7 +639,7 @@ class MainApplication:
     def create_appointments_tab(self):
         """Создаёт вкладку со списком всех записей"""
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="📋 Все записи")
+        self.notebook.add(tab, text="Все записи")
         
         # Верхняя панель с кнопками
         top_frame = ttk.Frame(tab)
@@ -648,7 +648,7 @@ class MainApplication:
         # Кнопка обновления
         ttk.Button(
             top_frame, 
-            text="🔄 Обновить", 
+            text="Обновить", 
             command=self.load_appointments
         ).pack(side='left', padx=2)
         
@@ -738,7 +738,7 @@ class MainApplication:
     
     def show_about(self):
         """Показывает информацию о программе"""
-        about_text = """🏥 Регистратура поликлиники
+        about_text = """Регистратура поликлиники
 Версия 1.0
 
 Программа для автоматизации работы регистратуры:
@@ -747,7 +747,7 @@ class MainApplication:
 • Просмотр расписания
 
 Разработано для курсовой работы
-2026 год"""
+Февраль 2026 год"""
         
         messagebox.showinfo("О программе", about_text)
 
