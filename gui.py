@@ -6,8 +6,10 @@
 # Импортируем необходимые модули
 import tkinter as tk
 from tkinter import ttk, messagebox
-from datetime import datetime
+from datetime import datetime, timedelta
 import database as db
+import os
+import sqlite3
 
 class MainApplication:
     """
@@ -75,6 +77,7 @@ class MainApplication:
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Файл", menu=file_menu)
         file_menu.add_command(label="Обновить всё", command=self.refresh_all)
+        file_menu.add_command(label="Очистить кэш БД", command=self.cleanup_database_cache)
         file_menu.add_separator()
         file_menu.add_command(label="Выход", command=self.root.quit)
         
@@ -112,13 +115,26 @@ class MainApplication:
         self.update_status("Все данные обновлены")
     
     # ============================================
+    # НОВАЯ ФУНКЦИЯ: ОЧИСТКА КЭША БД
+    # ============================================
+    
+    def cleanup_database_cache(self):
+        """Очищает кэш базы данных (VACUUM)"""
+        try:
+            db.vacuum_database()
+            self.update_status("Кэш базы данных успешно очищен")
+            messagebox.showinfo("Очистка кэша", "Кэш базы данных успешно очищен")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось очистить кэш: {e}")
+    
+    # ============================================
     # ВКЛАДКА "ПАЦИЕНТЫ"
     # ============================================
     
     def create_patients_tab(self):
         """Создаёт вкладку управления пациентами"""
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="👥 Пациенты")
+        self.notebook.add(tab, text="Пациенты")
         
         # Верхняя панель с кнопками
         top_frame = ttk.Frame(tab)
@@ -407,7 +423,7 @@ class MainApplication:
             self.doctor_combobox.current(0)  # Выбираем первого врача по умолчанию
     
     # ============================================
-    # ВКЛАДКА "НОВАЯ ЗАПИСЬ"
+    # ВКЛАДКА "НОВАЯ ЗАПИСЬ" (ИСПРАВЛЕННАЯ)
     # ============================================
     
     def create_new_appointment_tab(self):
@@ -452,11 +468,22 @@ class MainApplication:
         self.patients_listbox = tk.Listbox(main_frame, height=5, width=60)
         self.patients_listbox.grid(row=2, column=0, columnspan=2, pady=5, sticky='ew')
         
+        # Переменная для хранения выбранного пациента
+        self.selected_patient_id = None
+        self.selected_patient_text = None
+        
+        # Привязываем событие выбора пациента
+        self.patients_listbox.bind('<<ListboxSelect>>', self.on_patient_select)
+        
+        # Метка с информацией о выбранном пациенте
+        self.selected_patient_label = ttk.Label(main_frame, text="Пациент не выбран", foreground='gray')
+        self.selected_patient_label.grid(row=3, column=0, columnspan=2, pady=2, sticky='w')
+        
         # ========================================
         # ВЫБОР ВРАЧА
         # ========================================
         ttk.Label(main_frame, text="Врач:", font=('Arial', 11)).grid(
-            row=3, column=0, sticky='w', pady=5
+            row=4, column=0, sticky='w', pady=5
         )
         
         self.doctor_combobox = ttk.Combobox(
@@ -464,18 +491,18 @@ class MainApplication:
             width=50, 
             state='readonly'  # Только для чтения, нельзя вводить своё
         )
-        self.doctor_combobox.grid(row=3, column=1, sticky='w', pady=5)
+        self.doctor_combobox.grid(row=4, column=1, sticky='w', pady=5)
         self.load_doctors_to_combobox()  # Загружаем врачей в список
         
         # ========================================
         # ВЫБОР ДАТЫ
         # ========================================
         ttk.Label(main_frame, text="Дата (ГГГГ-ММ-ДД):", font=('Arial', 11)).grid(
-            row=4, column=0, sticky='w', pady=5
+            row=5, column=0, sticky='w', pady=5
         )
         
         date_frame = ttk.Frame(main_frame)
-        date_frame.grid(row=4, column=1, sticky='w', pady=5)
+        date_frame.grid(row=5, column=1, sticky='w', pady=5)
         
         self.date_entry = ttk.Entry(date_frame, width=15)
         self.date_entry.pack(side='left', padx=2)
@@ -491,22 +518,77 @@ class MainApplication:
         # ========================================
         # ВЫБОР ВРЕМЕНИ
         # ========================================
+        ttk.Label(main_frame, text="Доступное время:", font=('Arial', 11)).grid(
+            row=6, column=0, sticky='w', pady=5
+        )
+        
         self.time_listbox = tk.Listbox(main_frame, height=8, width=30)
-        self.time_listbox.grid(row=5, column=1, pady=5, sticky='w')
+        self.time_listbox.grid(row=6, column=1, pady=5, sticky='w')
+        
+        # Переменная для хранения выбранного времени
+        self.selected_time = None
+        self.time_listbox.bind('<<ListboxSelect>>', self.on_time_select)
+        
+        # Метка с информацией о выбранном времени
+        self.selected_time_label = ttk.Label(main_frame, text="Время не выбрано", foreground='gray')
+        self.selected_time_label.grid(row=7, column=1, pady=2, sticky='w')
         
         # ========================================
         # КНОПКА ЗАПИСИ
         # ========================================
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=8, column=0, columnspan=2, pady=20)
+        
         ttk.Button(
-            main_frame, 
+            button_frame, 
             text="Записать на приём", 
             command=self.create_appointment,
             style='Action.TButton'
-        ).grid(row=6, column=1, pady=20)
+        ).pack(side='left', padx=5)
+        
+        ttk.Button(
+            button_frame,
+            text="Очистить форму",
+            command=self.clear_appointment_form
+        ).pack(side='left', padx=5)
         
         # Метка для вывода информации
         self.appointment_info_label = ttk.Label(main_frame, text="", foreground='blue')
-        self.appointment_info_label.grid(row=7, column=0, columnspan=2)
+        self.appointment_info_label.grid(row=9, column=0, columnspan=2)
+    
+    def on_patient_select(self, event):
+        """Обработчик выбора пациента из списка"""
+        selection = self.patients_listbox.curselection()
+        if selection:
+            # Получаем выбранный текст
+            self.selected_patient_text = self.patients_listbox.get(selection[0])
+            try:
+                # Извлекаем ID пациента (формат "ID: ФИО (Полис: ...)")
+                self.selected_patient_id = int(self.selected_patient_text.split(':')[0])
+                # Обновляем метку
+                patient_name = self.selected_patient_text.split(':', 1)[1].split('(')[0].strip()
+                self.selected_patient_label.config(
+                    text=f"✓ Выбран пациент: {patient_name}", 
+                    foreground='green'
+                )
+                self.update_status(f"Выбран пациент: {patient_name}")
+            except (ValueError, IndexError):
+                self.selected_patient_id = None
+                self.selected_patient_label.config(text="Ошибка выбора пациента", foreground='red')
+    
+    def on_time_select(self, event):
+        """Обработчик выбора времени"""
+        selection = self.time_listbox.curselection()
+        if selection:
+            self.selected_time = self.time_listbox.get(selection[0])
+            if self.selected_time != "Нет свободного времени":
+                self.selected_time_label.config(
+                    text=f"✓ Выбрано время: {self.selected_time}",
+                    foreground='green'
+                )
+            else:
+                self.selected_time = None
+                self.selected_time_label.config(text="Время не выбрано", foreground='gray')
     
     def search_patients_for_appointment(self, event=None):
         """Поиск пациентов для записи на приём"""
@@ -514,6 +596,11 @@ class MainApplication:
         
         # Очищаем список
         self.patients_listbox.delete(0, tk.END)
+        
+        # Сбрасываем выбранного пациента
+        self.selected_patient_id = None
+        self.selected_patient_text = None
+        self.selected_patient_label.config(text="Пациент не выбран", foreground='gray')
         
         # Ищем только если введено хотя бы 2 символа
         if len(search_text) < 2:
@@ -528,8 +615,10 @@ class MainApplication:
     def show_free_time(self):
         """Показывает свободное время для выбранного врача и даты"""
         # Проверяем, выбран ли пациент
-        if not self.patients_listbox.curselection():
-            messagebox.showwarning("Предупреждение", "Сначала выберите пациента из списка")
+        if not self.selected_patient_id:
+            messagebox.showwarning("Предупреждение", 
+                                 "Сначала выберите пациента из списка.\n"
+                                 "Для выбора: найдите пациента и кликните на него в списке.")
             return
         
         # Проверяем, выбран ли врач
@@ -556,29 +645,32 @@ class MainApplication:
         
         # Очищаем и заполняем список времени
         self.time_listbox.delete(0, tk.END)
+        self.selected_time = None
+        self.selected_time_label.config(text="Время не выбрано", foreground='gray')
+        
         for time in free_times:
             self.time_listbox.insert(tk.END, time)
         
         # Обновляем информационную метку
         if not free_times:
             self.time_listbox.insert(tk.END, "Нет свободного времени")
-            self.appointment_info_label.config(text="На эту дату нет свободных слотов")
+            self.appointment_info_label.config(
+                text="На эту дату нет свободных слотов. Выберите другую дату.",
+                foreground='red'
+            )
         else:
-            self.appointment_info_label.config(text=f"Доступно слотов: {len(free_times)}")
+            self.appointment_info_label.config(
+                text=f"✓ Доступно слотов: {len(free_times)}. Выберите время из списка.",
+                foreground='green'
+            )
     
     def create_appointment(self):
         """Создаёт новую запись на приём"""
         # Проверяем выбор пациента
-        if not self.patients_listbox.curselection():
-            messagebox.showwarning("Предупреждение", "Выберите пациента из списка")
-            return
-        
-        # Получаем ID пациента из выбранной строки
-        patient_selection = self.patients_listbox.get(self.patients_listbox.curselection())
-        try:
-            patient_id = int(patient_selection.split(':')[0])
-        except:
-            messagebox.showerror("Ошибка", "Неверный формат данных пациента")
+        if not self.selected_patient_id:
+            messagebox.showwarning("Предупреждение", 
+                                 "Выберите пациента из списка.\n"
+                                 "Для выбора: найдите пациента и кликните на него в списке.")
             return
         
         # Проверяем выбор врача
@@ -595,12 +687,13 @@ class MainApplication:
             return
         
         # Проверяем выбор времени
-        if not self.time_listbox.curselection():
-            messagebox.showwarning("Предупреждение", "Выберите время из списка")
+        if not self.selected_time:
+            messagebox.showwarning("Предупреждение", 
+                                 "Выберите время из списка.\n"
+                                 "Для выбора: нажмите на время в списке.")
             return
         
-        selected_time = self.time_listbox.get(self.time_listbox.curselection())
-        if selected_time == "Нет свободного времени":
+        if self.selected_time == "Нет свободного времени":
             messagebox.showwarning("Предупреждение", "Выберите другое время или дату")
             return
         
@@ -611,26 +704,50 @@ class MainApplication:
             return
         
         # Создаём запись в БД
-        appointment_id = db.add_appointment(patient_id, doctor_id, date, selected_time)
+        appointment_id = db.add_appointment(self.selected_patient_id, doctor_id, date, self.selected_time)
         
         if appointment_id:
             messagebox.showinfo("Успех", "Пациент успешно записан на приём")
             
             # Очищаем форму
-            self.patient_search_entry.delete(0, tk.END)
-            self.patients_listbox.delete(0, tk.END)
-            self.time_listbox.delete(0, tk.END)
+            self.clear_appointment_form()
             
             # Обновляем список записей
             self.load_appointments()
             
             # Переключаемся на вкладку со списком записей
-            # Индекс 3, потому что вкладки: 0-Пациенты, 1-Врачи, 2-Новая запись, 3-Все записи
             self.notebook.select(3)
             
             self.update_status("Создана новая запись на приём")
         else:
-            messagebox.showerror("Ошибка", "Не удалось создать запись. Возможно, это время уже занято.")
+            messagebox.showerror("Ошибка", 
+                               "Не удалось создать запись. Возможно, это время уже занято.\n"
+                               "Попробуйте выбрать другое время.")
+    
+    def clear_appointment_form(self):
+        """Очищает форму записи на приём"""
+        # Очищаем поиск пациента
+        self.patient_search_entry.delete(0, tk.END)
+        self.patients_listbox.delete(0, tk.END)
+        
+        # Сбрасываем выбранного пациента
+        self.selected_patient_id = None
+        self.selected_patient_text = None
+        self.selected_patient_label.config(text="Пациент не выбран", foreground='gray')
+        
+        # Сбрасываем время
+        self.time_listbox.delete(0, tk.END)
+        self.selected_time = None
+        self.selected_time_label.config(text="Время не выбрано", foreground='gray')
+        
+        # Сбрасываем информационную метку
+        self.appointment_info_label.config(text="")
+        
+        # Возвращаем дату на сегодня
+        self.date_entry.delete(0, tk.END)
+        self.date_entry.insert(0, datetime.now().strftime('%Y-%m-%d'))
+        
+        self.update_status("Форма очищена")
     
     # ============================================
     # ВКЛАДКА "ВСЕ ЗАПИСИ"
@@ -657,6 +774,13 @@ class MainApplication:
             top_frame, 
             text="❌ Отменить выбранную запись", 
             command=self.cancel_selected_appointment
+        ).pack(side='left', padx=2)
+        
+        # Кнопка удаления старых записей
+        ttk.Button(
+            top_frame,
+            text="🗑 Удалить старые записи",
+            command=self.delete_old_appointments
         ).pack(side='left', padx=2)
         
         # Таблица записей
@@ -712,6 +836,8 @@ class MainApplication:
                 apt['time'],
                 apt['status']
             ))
+        
+        self.update_status(f"Загружено {len(appointments)} записей")
     
     def cancel_selected_appointment(self):
         """Отменяет выбранную запись"""
@@ -732,6 +858,19 @@ class MainApplication:
             self.load_appointments()  # Обновляем список
             self.update_status(f"Запись отменена")
     
+    def delete_old_appointments(self):
+        """Удаляет записи старше 30 дней"""
+        if messagebox.askyesno("Подтверждение", 
+                              "Удалить все записи старше 30 дней?\n"
+                              "Эта операция необратима."):
+            try:
+                db.delete_old_appointments()
+                self.load_appointments()
+                self.update_status("Старые записи удалены")
+                messagebox.showinfo("Успех", "Старые записи успешно удалены")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось удалить старые записи: {e}")
+    
     # ============================================
     # ДИАЛОГ "О ПРОГРАММЕ"
     # ============================================
@@ -739,12 +878,19 @@ class MainApplication:
     def show_about(self):
         """Показывает информацию о программе"""
         about_text = """Регистратура поликлиники
-Версия 1.0
+Версия 1.1
 
 Программа для автоматизации работы регистратуры:
 • Ведение базы пациентов
 • Запись на приём к врачам
 • Просмотр расписания
+• Автоматическая очистка кэша БД
+
+Новые возможности:
+✓ Улучшенный выбор пациента и времени
+✓ Очистка кэша базы данных
+✓ Удаление старых записей
+✓ Визуальная индикация выбора
 
 Разработано для курсовой работы
 Февраль 2026 год"""

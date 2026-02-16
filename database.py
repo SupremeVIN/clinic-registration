@@ -6,7 +6,7 @@
 # Импортируем необходимые модули
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta  # ДОБАВЛЕНО: импортируем timedelta
 
 # ============================================
 # НАСТРОЙКИ БАЗЫ ДАННЫХ
@@ -436,3 +436,52 @@ def delete_appointment(appointment_id):
             return True
     except sqlite3.DatabaseError:
         return False
+
+# ============================================
+# НОВЫЕ ФУНКЦИИ: ОЧИСТКА КЭША БД И УДАЛЕНИЕ СТАРЫХ ЗАПИСЕЙ
+# ============================================
+
+def vacuum_database():
+    """
+    Очищает кэш базы данных и уменьшает размер файла.
+    VACUUM перестраивает всю базу данных, освобождая неиспользуемое пространство.
+    
+    Returns:
+        bool: True в случае успеха, False при ошибке
+    """
+    try:
+        with get_connection() as conn:
+            conn.execute("VACUUM")
+            conn.commit()
+        print("База данных оптимизирована (VACUUM)")
+        return True
+    except sqlite3.DatabaseError as e:
+        print(f"Ошибка при оптимизации БД: {e}")
+        return False
+
+def delete_old_appointments(days=30):
+    """
+    Удаляет записи старше указанного количества дней.
+    
+    Args:
+        days (int): количество дней (по умолчанию 30)
+    
+    Returns:
+        int: количество удаленных записей
+    """
+    try:
+        # Вычисляем дату, старше которой нужно удалить записи
+        cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        
+        with get_connection() as conn:
+            cursor = conn.execute('''
+                DELETE FROM appointments 
+                WHERE date < ?
+            ''', (cutoff_date,))
+            conn.commit()
+            deleted_count = cursor.rowcount
+            print(f"Удалено старых записей: {deleted_count}")
+            return deleted_count
+    except sqlite3.DatabaseError as e:
+        print(f"Ошибка при удалении старых записей: {e}")
+        return 0
