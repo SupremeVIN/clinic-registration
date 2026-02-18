@@ -49,17 +49,17 @@ class MainApplication:
         stats = db.get_database_stats()
         messagebox.showinfo(
             "Информация о безопасности",
-            f"✅ База данных защищена\n"
-            f"📊 Статистика:\n"
-            f"   - Пациентов: {stats['patients']}\n"
-            f"   - Врачей: {stats['doctors']}\n"
-            f"   - Записей: {stats['appointments']}\n"
-            f"   - Размер БД: {stats['size_kb']} КБ\n\n"
-            f"🛡️ Меры безопасности активны:\n"
-            f"   - Защита от SQL-инъекций\n"
-            f"   - Валидация всех данных\n"
-            f"   - Логирование действий\n"
-            f"   - Автоматическое резервирование"
+            f"База данных защищена\n"
+            f"Статистика:\n"
+            f" - Пациентов: {stats['patients']}\n"
+            f" - Врачей: {stats['doctors']}\n"
+            f" - Записей: {stats['appointments']}\n"
+            f" - Размер БД: {stats['size_kb']} КБ\n\n"
+            f"Меры безопасности активны:\n"
+            f" - Защита от SQL-инъекций\n"
+            f" - Валидация всех данных\n"
+            f" - Логирование действий\n"
+            f" - Автоматическое резервирование"
         )
     
     def center_window(self):
@@ -112,7 +112,7 @@ class MainApplication:
         """Создаёт резервную копию без показа сообщения"""
         backup_file = db.backup_database()
         if backup_file:
-            print(f"✅ Автоматический бэкап создан: {backup_file}")
+            print(f"Автоматический бэкап создан: {backup_file}")
     
     def create_backup(self):
         """Создаёт резервную копию"""
@@ -127,10 +127,10 @@ class MainApplication:
         """Проверяет целостность базы данных"""
         if db.verify_database_integrity():
             messagebox.showinfo("Проверка целостности", 
-                              "✅ База данных цела и не повреждена")
+                              "База данных цела и не повреждена")
         else:
             if messagebox.askyesno("Повреждение БД", 
-                                 "❌ База данных повреждена!\n\n"
+                                 "База данных повреждена!\n\n"
                                  "Создать резервную копию и восстановить?"):
                 self.create_backup()
                 self.refresh_all()
@@ -178,23 +178,23 @@ class MainApplication:
 ║     СТАТИСТИКА БЕЗОПАСНОСТИ       ║
 ╚════════════════════════════════════╝
 
-📊 ДАННЫЕ:
+ДАННЫЕ:
    • Пациентов: {stats['patients']}
    • Врачей: {stats['doctors']}
    • Записей всего: {stats['appointments']}
    • Записей на сегодня: {stats['today_appointments']}
 
-💾 РЕЗЕРВНОЕ КОПИРОВАНИЕ:
+РЕЗЕРВНОЕ КОПИРОВАНИЕ:
    • Размер БД: {stats['size_kb']} КБ
    • Последний бэкап: {stats['last_backup'] or 'нет'}
 
-🔐 ЗАЩИТА:
+ЗАЩИТА:
    • SQL-инъекции: ✅ Заблокированы
    • Валидация данных: ✅ Активна
    • Логирование: ✅ Включено
    • Журнал аудита: {log_size} КБ
 
-⚠️ ВНИМАНИЕ:
+ВНИМАНИЕ:
    • Все действия записываются в audit.log
    • Не удаляйте файлы .db и .log вручную
    • Используйте меню "Безопасность" для проверок
@@ -207,27 +207,27 @@ class MainApplication:
 РУКОВОДСТВО ПО БЕЗОПАСНОСТИ
 ===========================
 
-🔐 ЗАЩИТА ДАННЫХ:
+ЗАЩИТА ДАННЫХ:
 1. Все SQL-запросы параметризованы
 2. Входные данные проходят валидацию
 3. Номера полисов хешируются в логах
 
-💾 РЕЗЕРВНОЕ КОПИРОВАНИЕ:
+РЕЗЕРВНОЕ КОПИРОВАНИЕ:
 • Автоматически при запуске
 • Вручную через меню "Файл"
 • Хранятся в папке /backups
 
-📋 АУДИТ:
+АУДИТ:
 • Все действия логируются
 • Лог хранится в audit.log
 • Не редактируйте лог вручную
 
-⚠️ ВАЖНО:
+ВАЖНО:
 • Не удаляйте файл clinic.db вручную
 • Используйте функцию "Очистить кэш"
 • При ошибках создавайте бэкап
 
-🛡️ РЕКОМЕНДАЦИИ:
+РЕКОМЕНДАЦИИ:
 • Регулярно проверяйте целостность БД
 • Храните бэкапы в надежном месте
 • Ограничьте доступ к программе
@@ -275,7 +275,7 @@ class MainApplication:
                 if db.vacuum_database():
                     self.update_status("Кэш базы данных успешно очищен")
                     messagebox.showinfo("Успех", 
-                                      "✅ Кэш очищен\n"
+                                      "Кэш очищен\n"
                                       "Размер файла уменьшен")
                 else:
                     messagebox.showerror("Ошибка", "Не удалось очистить кэш")
@@ -302,12 +302,12 @@ class MainApplication:
         
         self.stats_labels = {}
         stats_items = [
-            ('patients', '👥 Пациентов:'),
-            ('doctors', '👨‍⚕️ Врачей:'),
-            ('appointments', '📅 Всего записей:'),
-            ('today_appointments', '📋 Записей на сегодня:'),
-            ('size_kb', '💾 Размер БД:'),
-            ('last_backup', '🔄 Последний бэкап:')
+            ('patients', 'Пациентов:'),
+            ('doctors', 'Врачей:'),
+            ('appointments', 'Всего записей:'),
+            ('today_appointments', 'Записей на сегодня:'),
+            ('size_kb', 'Размер БД:'),
+            ('last_backup', 'Последний бэкап:')
         ]
         
         for i, (key, label) in enumerate(stats_items):
@@ -319,7 +319,7 @@ class MainApplication:
         
         ttk.Button(
             main_frame,
-            text="🔄 Обновить статистику",
+            text="Обновить статистику",
             command=self.load_stats
         ).grid(row=len(stats_items)+2, column=0, columnspan=2, pady=20)
         
@@ -327,10 +327,10 @@ class MainApplication:
         security_frame.grid(row=len(stats_items)+3, column=0, columnspan=2, pady=10, sticky='ew')
         
         security_items = [
-            ("✅ Защита от SQL-инъекций", "green"),
-            ("✅ Валидация данных", "green"),
-            ("✅ Логирование действий", "green"),
-            ("✅ Автоматическое резервирование", "green")
+            ("Защита от SQL-инъекций", "green"),
+            ("Валидация данных", "green"),
+            ("Логирование действий", "green"),
+            ("Автоматическое резервирование", "green")
         ]
         
         for i, (text, color) in enumerate(security_items):
@@ -364,27 +364,27 @@ class MainApplication:
         
         ttk.Button(
             top_frame, 
-            text="➕ Добавить пациента", 
+            text="Добавить пациента", 
             command=self.open_add_patient_dialog,
             style='Action.TButton'
         ).pack(side='left', padx=2)
         
         ttk.Button(
             top_frame, 
-            text="✏️ Редактировать", 
+            text="Редактировать", 
             command=self.open_edit_patient_dialog
         ).pack(side='left', padx=2)
         
         ttk.Button(
             top_frame, 
-            text="❌ Удалить", 
+            text="Удалить", 
             command=self.delete_selected_patient,
             style='Warning.TButton'
         ).pack(side='left', padx=2)
         
         ttk.Button(
             top_frame, 
-            text="🔄 Обновить", 
+            text="Обновить", 
             command=self.load_patients
         ).pack(side='left', padx=2)
         
@@ -515,7 +515,7 @@ class MainApplication:
         
         if messagebox.askyesno("Подтверждение", 
                               f"Удалить пациента {patient_name}?\n\n"
-                              "⚠️ ВНИМАНИЕ:\n"
+                              "ВНИМАНИЕ:\n"
                               "Если у пациента есть будущие записи, удаление будет запрещено.\n"
                               "Все прошлые записи будут удалены."):
             
@@ -587,7 +587,7 @@ class MainApplication:
         
         security_label = ttk.Label(
             dialog, 
-            text="🔐 Данные будут проверены и очищены",
+            text="Данные будут проверены и очищены",
             foreground='green',
             font=('Arial', 9)
         )
@@ -675,7 +675,7 @@ class MainApplication:
         
         info_label = ttk.Label(
             tab,
-            text="🔒 Список врачей доступен только для просмотра. Изменения через администратора.",
+            text="Список врачей доступен только для просмотра. Изменения через администратора.",
             foreground='blue',
             font=('Arial', 9)
         )
@@ -742,7 +742,7 @@ class MainApplication:
         
         ttk.Button(
             patient_frame, 
-            text="🔍 Поиск", 
+            text="Поиск", 
             command=self.search_patients_for_appointment
         ).pack(side='left', padx=2)
         
@@ -793,7 +793,7 @@ class MainApplication:
         
         ttk.Button(
             date_frame, 
-            text="📅 Показать свободное время", 
+            text="Показать свободное время", 
             command=self.show_free_time
         ).pack(side='left', padx=2)
         
@@ -821,14 +821,14 @@ class MainApplication:
         
         ttk.Button(
             button_frame, 
-            text="✅ Записать на приём", 
+            text="Записать на приём", 
             command=self.create_appointment,
             style='Action.TButton'
         ).pack(side='left', padx=5)
         
         ttk.Button(
             button_frame,
-            text="🗑 Очистить форму",
+            text="Очистить форму",
             command=self.clear_appointment_form
         ).pack(side='left', padx=5)
         
@@ -837,7 +837,7 @@ class MainApplication:
         
         security_label = ttk.Label(
             main_frame,
-            text="🔒 Все данные проверяются. Запись в прошлое невозможна.",
+            text="Все данные проверяются. Запись в прошлое невозможна.",
             foreground='green',
             font=('Arial', 9)
         )
@@ -863,7 +863,7 @@ class MainApplication:
                 self.selected_patient_id = int(self.selected_patient_text.split(':')[0])
                 patient_name = self.selected_patient_text.split(':', 1)[1].split('(')[0].strip()
                 self.selected_patient_label.config(
-                    text=f"✓ Выбран пациент: {patient_name}", 
+                    text=f"Выбран пациент: {patient_name}", 
                     foreground='green'
                 )
                 self.update_status(f"Выбран пациент: {patient_name}")
@@ -878,7 +878,7 @@ class MainApplication:
             self.selected_time = self.time_listbox.get(selection[0])
             if self.selected_time != "Нет свободного времени":
                 self.selected_time_label.config(
-                    text=f"✓ Выбрано время: {self.selected_time}",
+                    text=f"Выбрано время: {self.selected_time}",
                     foreground='green'
                 )
             else:
@@ -940,12 +940,12 @@ class MainApplication:
             if not free_times:
                 self.time_listbox.insert(tk.END, "Нет свободного времени")
                 self.appointment_info_label.config(
-                    text="❌ На эту дату нет свободных слотов",
+                    text="На эту дату нет свободных слотов",
                     foreground='red'
                 )
             else:
                 self.appointment_info_label.config(
-                    text=f"✅ Доступно слотов: {len(free_times)}",
+                    text=f"Доступно слотов: {len(free_times)}",
                     foreground='green'
                 )
         except Exception as e:
@@ -1022,20 +1022,20 @@ class MainApplication:
         
         ttk.Button(
             top_frame, 
-            text="🔄 Обновить", 
+            text="Обновить", 
             command=self.load_appointments
         ).pack(side='left', padx=2)
         
         ttk.Button(
             top_frame, 
-            text="❌ Отменить запись", 
+            text="Отменить запись", 
             command=self.cancel_selected_appointment,
             style='Warning.TButton'
         ).pack(side='left', padx=2)
         
         ttk.Button(
             top_frame,
-            text="🗑 Удалить старые записи",
+            text="Удалить старые записи",
             command=self.delete_old_appointments
         ).pack(side='left', padx=2)
         
@@ -1160,7 +1160,7 @@ class MainApplication:
         """Удаляет старые записи"""
         if messagebox.askyesno("Подтверждение", 
                               "Удалить все записи старше 30 дней?\n\n"
-                              "⚠️ ВНИМАНИЕ:\n"
+                              "ВНИМАНИЕ:\n"
                               "Эта операция необратима.\n"
                               "Будет создана резервная копия."):
             try:
@@ -1183,26 +1183,27 @@ class MainApplication:
         about_text = """РЕГИСТРАТУРА ПОЛИКЛИНИКИ
 Версия 2.0 (Безопасная)
 
-🛡️ ЗАЩИТА ДАННЫХ:
+ЗАЩИТА ДАННЫХ:
 • Параметризованные SQL-запросы
 • Валидация всех входных данных
 • Логирование действий (audit.log)
 • Автоматическое резервирование
 • Проверка целостности БД
 
-📊 ФУНКЦИОНАЛ:
+ФУНКЦИОНАЛ:
 • Ведение базы пациентов
 • Запись на приём к врачам
 • Просмотр и отмена записей
 • Статистика и мониторинг
 • Журнал аудита
 
-🔐 БЕЗОПАСНОСТЬ:
-• Защита от SQL-инъекций: ✅
-• Валидация данных: ✅
-• Аудит действий: ✅
-• Резервное копирование: ✅
+БЕЗОПАСНОСТЬ:
+• Защита от SQL-инъекций: 
+• Валидация данных: 
+• Аудит действий: 
+• Резервное копирование: 
 
+Чухарев Сергей Михайлович
 Разработано для курсовой работы
 Февраль 2026 год"""
         
@@ -1219,7 +1220,7 @@ if __name__ == "__main__":
     print("=" * 60)
     
     if not db.verify_database_integrity():
-        print("⚠️ База данных повреждена! Будет создана новая.")
+        print("База данных повреждена! Будет создана новая.")
         if os.path.exists('clinic.db'):
             backup_name = f"clinic.db.corrupted.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             os.rename('clinic.db', backup_name)
@@ -1233,8 +1234,8 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = MainApplication(root)
     
-    print("✅ Программа запущена в безопасном режиме")
-    print("📝 Журнал аудита: audit.log")
+    print("Программа запущена в безопасном режиме")
+    print("Журнал аудита: audit.log")
     print("=" * 60)
     
     root.mainloop()

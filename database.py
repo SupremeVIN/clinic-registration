@@ -3,7 +3,7 @@
 Содержит все функции для создания, чтения, обновления данных.
 """
 
-# Импортируем необходимые модули
+# Импорт необходимых модулей
 import sqlite3
 import os
 import re
@@ -22,7 +22,7 @@ DB_NAME = 'clinic.db'
 # Файл для аудита
 AUDIT_LOG = 'audit.log'
 
-# Соль для хеширования (в реальном проекте хранить в безопасном месте)
+# Соль для хеширования
 SALT = "clinic_salt_2026_change_this"
 
 # Настройка логирования
@@ -257,10 +257,10 @@ def init_db():
     
     if os.path.exists(DB_NAME):
         if not verify_database_integrity():
-            print("  ⚠️ База данных повреждена!")
+            print("  База данных повреждена!")
             backup_database()
             os.remove(DB_NAME)
-            print("  - Повреждённый файл удалён")
+            print("  Повреждённый файл удалён")
         else:
             backup_database()
     
