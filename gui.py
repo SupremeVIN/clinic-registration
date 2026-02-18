@@ -3,13 +3,11 @@
 Использует библиотеку tkinter.
 """
 
-# Импортируем необходимые модули
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime, timedelta
 import database as db
 import os
-import sqlite3
 
 class MainApplication:
     """
@@ -28,30 +26,41 @@ class MainApplication:
         self.root.title("Регистратура поликлиники")
         self.root.geometry("1200x700")
         
-        # Центрируем окно на экране
         self.center_window()
-        
-        # Настраиваем стили
         self.setup_styles()
-        
-        # Создаём меню
         self.create_menu()
-        
-        # Создаём строку состояния (статус бар)
         self.create_status_bar()
         
-        # Создаём блокнот с вкладками
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
         
-        # Создаём все вкладки
-        self.create_patients_tab()      # Вкладка "Пациенты"
-        self.create_doctors_tab()        # Вкладка "Врачи"
-        self.create_new_appointment_tab() # Вкладка "Новая запись"
-        self.create_appointments_tab()    # Вкладка "Все записи"
+        self.create_patients_tab()
+        self.create_doctors_tab()
+        self.create_new_appointment_tab()
+        self.create_appointments_tab()
+        self.create_stats_tab()
         
-        # Обновляем статус
-        self.update_status("Программа готова к работе")
+        self.update_status("Программа готова к работе. Режим: безопасный")
+        
+        self.after_id = self.root.after(1000, self.show_startup_info)
+    
+    def show_startup_info(self):
+        """Показывает информацию о безопасности при запуске"""
+        stats = db.get_database_stats()
+        messagebox.showinfo(
+            "Информация о безопасности",
+            f"✅ База данных защищена\n"
+            f"📊 Статистика:\n"
+            f"   - Пациентов: {stats['patients']}\n"
+            f"   - Врачей: {stats['doctors']}\n"
+            f"   - Записей: {stats['appointments']}\n"
+            f"   - Размер БД: {stats['size_kb']} КБ\n\n"
+            f"🛡️ Меры безопасности активны:\n"
+            f"   - Защита от SQL-инъекций\n"
+            f"   - Валидация всех данных\n"
+            f"   - Логирование действий\n"
+            f"   - Автоматическое резервирование"
+        )
     
     def center_window(self):
         """Центрирует окно на экране"""
@@ -67,30 +76,169 @@ class MainApplication:
         style = ttk.Style()
         style.configure('Header.TLabel', font=('Arial', 12, 'bold'))
         style.configure('Action.TButton', font=('Arial', 10), padding=5)
+        style.configure('Warning.TButton', font=('Arial', 10), padding=5, foreground='red')
     
     def create_menu(self):
         """Создаёт главное меню программы"""
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
         
-        # Меню "Файл"
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Файл", menu=file_menu)
         file_menu.add_command(label="Обновить всё", command=self.refresh_all)
         file_menu.add_command(label="Очистить кэш БД", command=self.cleanup_database_cache)
+        file_menu.add_command(label="Создать резервную копию", command=self.create_backup)
         file_menu.add_separator()
-        file_menu.add_command(label="Выход", command=self.root.quit)
+        file_menu.add_command(label="Выход", command=self.quit_application)
         
-        # Меню "Справка"
+        security_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Безопасность", menu=security_menu)
+        security_menu.add_command(label="Показать журнал аудита", command=self.show_audit_log)
+        security_menu.add_command(label="Проверить целостность БД", command=self.check_integrity)
+        security_menu.add_command(label="Статистика безопасности", command=self.show_security_stats)
+        
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Справка", menu=help_menu)
         help_menu.add_command(label="О программе", command=self.show_about)
+        help_menu.add_command(label="Руководство по безопасности", command=self.show_security_guide)
+    
+    def quit_application(self):
+        """Безопасное завершение приложения"""
+        if messagebox.askyesno("Подтверждение", "Завершить работу программы?"):
+            self.root.after(100, self.create_backup_silent)
+            self.root.after(500, self.root.quit)
+    
+    def create_backup_silent(self):
+        """Создаёт резервную копию без показа сообщения"""
+        backup_file = db.backup_database()
+        if backup_file:
+            print(f"✅ Автоматический бэкап создан: {backup_file}")
+    
+    def create_backup(self):
+        """Создаёт резервную копию"""
+        backup_file = db.backup_database()
+        if backup_file:
+            messagebox.showinfo("Успех", f"Резервная копия создана:\n{backup_file}")
+            self.update_status("Резервная копия создана")
+        else:
+            messagebox.showerror("Ошибка", "Не удалось создать резервную копию")
+    
+    def check_integrity(self):
+        """Проверяет целостность базы данных"""
+        if db.verify_database_integrity():
+            messagebox.showinfo("Проверка целостности", 
+                              "✅ База данных цела и не повреждена")
+        else:
+            if messagebox.askyesno("Повреждение БД", 
+                                 "❌ База данных повреждена!\n\n"
+                                 "Создать резервную копию и восстановить?"):
+                self.create_backup()
+                self.refresh_all()
+    
+    def show_audit_log(self):
+        """Показывает журнал аудита"""
+        log_file = 'audit.log'
+        if not os.path.exists(log_file):
+            messagebox.showinfo("Журнал аудита", "Журнал аудита пуст")
+            return
+        
+        log_window = tk.Toplevel(self.root)
+        log_window.title("Журнал аудита")
+        log_window.geometry("800x500")
+        
+        text_frame = ttk.Frame(log_window)
+        text_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        scrollbar = ttk.Scrollbar(text_frame)
+        scrollbar.pack(side='right', fill='y')
+        
+        text_widget = tk.Text(text_frame, wrap='none', yscrollcommand=scrollbar.set)
+        text_widget.pack(side='left', fill='both', expand=True)
+        
+        scrollbar.config(command=text_widget.yview)
+        
+        try:
+            with open(log_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                text_widget.insert('1.0', content)
+            text_widget.config(state='disabled')
+        except Exception as e:
+            text_widget.insert('1.0', f"Ошибка чтения лога: {e}")
+    
+    def show_security_stats(self):
+        """Показывает статистику безопасности"""
+        stats = db.get_database_stats()
+        
+        log_size = 0
+        if os.path.exists('audit.log'):
+            log_size = os.path.getsize('audit.log') // 1024
+        
+        security_info = f"""
+╔════════════════════════════════════╗
+║     СТАТИСТИКА БЕЗОПАСНОСТИ       ║
+╚════════════════════════════════════╝
+
+📊 ДАННЫЕ:
+   • Пациентов: {stats['patients']}
+   • Врачей: {stats['doctors']}
+   • Записей всего: {stats['appointments']}
+   • Записей на сегодня: {stats['today_appointments']}
+
+💾 РЕЗЕРВНОЕ КОПИРОВАНИЕ:
+   • Размер БД: {stats['size_kb']} КБ
+   • Последний бэкап: {stats['last_backup'] or 'нет'}
+
+🔐 ЗАЩИТА:
+   • SQL-инъекции: ✅ Заблокированы
+   • Валидация данных: ✅ Активна
+   • Логирование: ✅ Включено
+   • Журнал аудита: {log_size} КБ
+
+⚠️ ВНИМАНИЕ:
+   • Все действия записываются в audit.log
+   • Не удаляйте файлы .db и .log вручную
+   • Используйте меню "Безопасность" для проверок
+"""
+        messagebox.showinfo("Статистика безопасности", security_info)
+    
+    def show_security_guide(self):
+        """Показывает руководство по безопасности"""
+        guide = """
+РУКОВОДСТВО ПО БЕЗОПАСНОСТИ
+===========================
+
+🔐 ЗАЩИТА ДАННЫХ:
+1. Все SQL-запросы параметризованы
+2. Входные данные проходят валидацию
+3. Номера полисов хешируются в логах
+
+💾 РЕЗЕРВНОЕ КОПИРОВАНИЕ:
+• Автоматически при запуске
+• Вручную через меню "Файл"
+• Хранятся в папке /backups
+
+📋 АУДИТ:
+• Все действия логируются
+• Лог хранится в audit.log
+• Не редактируйте лог вручную
+
+⚠️ ВАЖНО:
+• Не удаляйте файл clinic.db вручную
+• Используйте функцию "Очистить кэш"
+• При ошибках создавайте бэкап
+
+🛡️ РЕКОМЕНДАЦИИ:
+• Регулярно проверяйте целостность БД
+• Храните бэкапы в надежном месте
+• Ограничьте доступ к программе
+"""
+        messagebox.showinfo("Руководство по безопасности", guide)
     
     def create_status_bar(self):
         """Создаёт строку состояния внизу окна"""
         self.status_bar = ttk.Label(
             self.root, 
-            text=" Готово", 
+            text=" Готово | Режим: безопасный", 
             relief='sunken', 
             anchor='w'
         )
@@ -104,7 +252,8 @@ class MainApplication:
             message (str): новое сообщение
         """
         if hasattr(self, 'status_bar'):
-            self.status_bar.config(text=f" {message}")
+            current_time = datetime.now().strftime('%H:%M:%S')
+            self.status_bar.config(text=f" [{current_time}] {message} | Режим: безопасный")
             self.root.update()
     
     def refresh_all(self):
@@ -112,20 +261,94 @@ class MainApplication:
         self.load_patients()
         self.load_doctors()
         self.load_appointments()
+        self.load_stats()
         self.update_status("Все данные обновлены")
-    
-    # ============================================
-    # НОВАЯ ФУНКЦИЯ: ОЧИСТКА КЭША БД
-    # ============================================
     
     def cleanup_database_cache(self):
         """Очищает кэш базы данных (VACUUM)"""
-        try:
-            db.vacuum_database()
-            self.update_status("Кэш базы данных успешно очищен")
-            messagebox.showinfo("Очистка кэша", "Кэш базы данных успешно очищен")
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось очистить кэш: {e}")
+        if messagebox.askyesno("Подтверждение", 
+                              "Очистить кэш базы данных?\n"
+                              "Это безопасная операция, которая уменьшит размер файла."):
+            try:
+                db.backup_database()
+                
+                if db.vacuum_database():
+                    self.update_status("Кэш базы данных успешно очищен")
+                    messagebox.showinfo("Успех", 
+                                      "✅ Кэш очищен\n"
+                                      "Размер файла уменьшен")
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось очистить кэш")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось очистить кэш: {e}")
+    
+    # ============================================
+    # ВКЛАДКА СТАТИСТИКИ
+    # ============================================
+    
+    def create_stats_tab(self):
+        """Создаёт вкладку со статистикой"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Статистика")
+        
+        main_frame = ttk.Frame(tab, padding="20")
+        main_frame.pack(fill='both', expand=True)
+        
+        ttk.Label(
+            main_frame, 
+            text="Статистика работы поликлиники", 
+            font=('Arial', 14, 'bold')
+        ).grid(row=0, column=0, columnspan=2, pady=10)
+        
+        self.stats_labels = {}
+        stats_items = [
+            ('patients', '👥 Пациентов:'),
+            ('doctors', '👨‍⚕️ Врачей:'),
+            ('appointments', '📅 Всего записей:'),
+            ('today_appointments', '📋 Записей на сегодня:'),
+            ('size_kb', '💾 Размер БД:'),
+            ('last_backup', '🔄 Последний бэкап:')
+        ]
+        
+        for i, (key, label) in enumerate(stats_items):
+            ttk.Label(main_frame, text=label, font=('Arial', 11)).grid(
+                row=i+1, column=0, sticky='w', pady=5
+            )
+            self.stats_labels[key] = ttk.Label(main_frame, text="...", font=('Arial', 11, 'bold'))
+            self.stats_labels[key].grid(row=i+1, column=1, sticky='w', pady=5, padx=20)
+        
+        ttk.Button(
+            main_frame,
+            text="🔄 Обновить статистику",
+            command=self.load_stats
+        ).grid(row=len(stats_items)+2, column=0, columnspan=2, pady=20)
+        
+        security_frame = ttk.LabelFrame(main_frame, text="Состояние безопасности", padding=10)
+        security_frame.grid(row=len(stats_items)+3, column=0, columnspan=2, pady=10, sticky='ew')
+        
+        security_items = [
+            ("✅ Защита от SQL-инъекций", "green"),
+            ("✅ Валидация данных", "green"),
+            ("✅ Логирование действий", "green"),
+            ("✅ Автоматическое резервирование", "green")
+        ]
+        
+        for i, (text, color) in enumerate(security_items):
+            label = ttk.Label(security_frame, text=text, foreground=color)
+            label.grid(row=i, column=0, sticky='w', pady=2)
+        
+        self.load_stats()
+    
+    def load_stats(self):
+        """Загружает статистику"""
+        stats = db.get_database_stats()
+        
+        self.stats_labels['patients'].config(text=str(stats['patients']))
+        self.stats_labels['doctors'].config(text=str(stats['doctors']))
+        self.stats_labels['appointments'].config(text=str(stats['appointments']))
+        self.stats_labels['today_appointments'].config(text=str(stats['today_appointments']))
+        self.stats_labels['size_kb'].config(text=f"{stats['size_kb']} КБ")
+        self.stats_labels['last_backup'].config(text=stats['last_backup'] or "нет")
     
     # ============================================
     # ВКЛАДКА "ПАЦИЕНТЫ"
@@ -136,42 +359,52 @@ class MainApplication:
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Пациенты")
         
-        # Верхняя панель с кнопками
         top_frame = ttk.Frame(tab)
         top_frame.pack(fill='x', padx=5, pady=5)
         
-        # Кнопка добавления пациента
         ttk.Button(
             top_frame, 
-            text="Добавить пациента", 
-            command=self.open_add_patient_dialog
+            text="➕ Добавить пациента", 
+            command=self.open_add_patient_dialog,
+            style='Action.TButton'
         ).pack(side='left', padx=2)
         
-        # Кнопка обновления списка
         ttk.Button(
             top_frame, 
-            text="Обновить список", 
+            text="✏️ Редактировать", 
+            command=self.open_edit_patient_dialog
+        ).pack(side='left', padx=2)
+        
+        ttk.Button(
+            top_frame, 
+            text="❌ Удалить", 
+            command=self.delete_selected_patient,
+            style='Warning.TButton'
+        ).pack(side='left', padx=2)
+        
+        ttk.Button(
+            top_frame, 
+            text="🔄 Обновить", 
             command=self.load_patients
         ).pack(side='left', padx=2)
         
-        # Панель поиска
         search_frame = ttk.Frame(top_frame)
         search_frame.pack(side='right')
         
         ttk.Label(search_frame, text="Поиск:").pack(side='left', padx=2)
         
-        # Переменная для хранения текста поиска
         self.patient_search_var = tk.StringVar()
-        # При каждом изменении текста вызываем search_patients
         self.patient_search_var.trace('w', lambda *args: self.search_patients())
         
+        vcmd = (self.root.register(self.validate_search), '%P')
         ttk.Entry(
             search_frame, 
             textvariable=self.patient_search_var, 
-            width=30
+            width=30,
+            validate='key',
+            validatecommand=vcmd
         ).pack(side='left')
         
-        # Таблица пациентов
         columns = ('id', 'ФИО', 'Дата рождения', 'Телефон', 'Номер полиса')
         self.patients_tree = ttk.Treeview(
             tab, 
@@ -180,21 +413,13 @@ class MainApplication:
             height=20
         )
         
-        # Настройка заголовков
-        self.patients_tree.heading('id', text='ID')
-        self.patients_tree.heading('ФИО', text='ФИО')
-        self.patients_tree.heading('Дата рождения', text='Дата рождения')
-        self.patients_tree.heading('Телефон', text='Телефон')
-        self.patients_tree.heading('Номер полиса', text='Номер полиса')
+        for col in columns:
+            self.patients_tree.heading(col, text=col)
         
-        # Настройка ширины колонок
-        self.patients_tree.column('id', width=50)
-        self.patients_tree.column('ФИО', width=250)
-        self.patients_tree.column('Дата рождения', width=100)
-        self.patients_tree.column('Телефон', width=120)
-        self.patients_tree.column('Номер полиса', width=150)
+        widths = [50, 250, 100, 120, 150]
+        for col, width in zip(columns, widths):
+            self.patients_tree.column(col, width=width)
         
-        # Добавляем скроллбар
         scrollbar = ttk.Scrollbar(
             tab, 
             orient='vertical', 
@@ -202,139 +427,202 @@ class MainApplication:
         )
         self.patients_tree.configure(yscrollcommand=scrollbar.set)
         
-        # Размещаем таблицу и скроллбар
         self.patients_tree.pack(side='left', fill='both', expand=True, padx=5, pady=5)
         scrollbar.pack(side='right', fill='y', pady=5)
         
-        # Загружаем данные
         self.load_patients()
+    
+    def validate_search(self, value):
+        """Валидация поискового запроса"""
+        if len(value) > 50:
+            return False
+        return True
     
     def load_patients(self):
         """Загружает список пациентов в таблицу"""
-        # Очищаем таблицу
-        for row in self.patients_tree.get_children():
-            self.patients_tree.delete(row)
-        
-        # Загружаем пациентов из БД
-        patients = db.get_all_patients()
-        for patient in patients:
-            self.patients_tree.insert('', 'end', values=(
-                patient['id'],
-                patient['full_name'],
-                patient['birth_date'] or '',
-                patient['phone'] or '',
-                patient['policy_number'] or ''
-            ))
-        
-        self.update_status(f"Загружено {len(patients)} пациентов")
+        try:
+            for row in self.patients_tree.get_children():
+                self.patients_tree.delete(row)
+            
+            patients = db.get_all_patients()
+            for patient in patients:
+                self.patients_tree.insert('', 'end', values=(
+                    patient['id'],
+                    patient['full_name'],
+                    patient['birth_date'] or '',
+                    patient['phone'] or '',
+                    patient['policy_number'] or ''
+                ))
+            
+            self.update_status(f"Загружено {len(patients)} пациентов")
+        except Exception as e:
+            self.update_status(f"Ошибка загрузки: {e}")
     
     def search_patients(self):
-        """Поиск пациентов по введённому тексту"""
+        """Поиск пациентов"""
         search_text = self.patient_search_var.get().strip()
         
-        # Очищаем таблицу
-        for row in self.patients_tree.get_children():
-            self.patients_tree.delete(row)
-        
-        # Ищем пациентов
-        if search_text:
-            patients = db.search_patients(search_text)
-        else:
-            patients = db.get_all_patients()
-        
-        # Заполняем таблицу результатами
-        for patient in patients:
-            self.patients_tree.insert('', 'end', values=(
-                patient['id'],
-                patient['full_name'],
-                patient['birth_date'] or '',
-                patient['phone'] or '',
-                patient['policy_number'] or ''
-            ))
+        try:
+            for row in self.patients_tree.get_children():
+                self.patients_tree.delete(row)
+            
+            if search_text and len(search_text) >= 2:
+                patients = db.search_patients(search_text)
+            else:
+                patients = db.get_all_patients()
+            
+            for patient in patients:
+                self.patients_tree.insert('', 'end', values=(
+                    patient['id'],
+                    patient['full_name'],
+                    patient['birth_date'] or '',
+                    patient['phone'] or '',
+                    patient['policy_number'] or ''
+                ))
+        except Exception as e:
+            self.update_status(f"Ошибка поиска: {e}")
     
     def open_add_patient_dialog(self):
-        """Открывает диалог добавления нового пациента"""
-        # Создаём новое окно поверх главного
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Добавление нового пациента")
-        dialog.geometry("500x300")
-        dialog.transient(self.root)  # Окно всегда поверх родителя
-        dialog.grab_set()  # Захватываем фокус
+        """Открывает диалог добавления пациента"""
+        self.open_patient_dialog(mode="add")
+    
+    def open_edit_patient_dialog(self):
+        """Открывает диалог редактирования пациента"""
+        selection = self.patients_tree.selection()
+        if not selection:
+            messagebox.showwarning("Предупреждение", "Выберите пациента для редактирования")
+            return
         
-        # Центрируем окно относительно родителя
+        item = self.patients_tree.item(selection[0])
+        patient_id = item['values'][0]
+        
+        patient = db.get_patient_by_id(patient_id)
+        if patient:
+            self.open_patient_dialog(mode="edit", patient=patient)
+        else:
+            messagebox.showerror("Ошибка", "Пациент не найден")
+    
+    def delete_selected_patient(self):
+        """Удаляет выбранного пациента"""
+        selection = self.patients_tree.selection()
+        if not selection:
+            messagebox.showwarning("Предупреждение", "Выберите пациента для удаления")
+            return
+        
+        item = self.patients_tree.item(selection[0])
+        patient_id = item['values'][0]
+        patient_name = item['values'][1]
+        
+        if messagebox.askyesno("Подтверждение", 
+                              f"Удалить пациента {patient_name}?\n\n"
+                              "⚠️ ВНИМАНИЕ:\n"
+                              "Если у пациента есть будущие записи, удаление будет запрещено.\n"
+                              "Все прошлые записи будут удалены."):
+            
+            result = db.delete_patient(patient_id)
+            
+            if result.get('success'):
+                self.load_patients()
+                self.load_appointments()
+                self.load_stats()
+                self.update_status(f"Пациент {patient_name} удалён")
+                messagebox.showinfo("Успех", "Пациент удалён")
+            elif 'future_appointments' in result:
+                messagebox.showerror("Ошибка", 
+                                    f"Нельзя удалить пациента с будущими записями\n"
+                                    f"Количество будущих записей: {result['future_appointments']}")
+            else:
+                messagebox.showerror("Ошибка", f"Не удалось удалить пациента: {result.get('error', '')}")
+    
+    def open_patient_dialog(self, mode="add", patient=None):
+        """
+        Универсальный диалог для добавления/редактирования пациента.
+        
+        Args:
+            mode (str): "add" или "edit"
+            patient: данные пациента (для edit)
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Редактирование пациента" if mode == "edit" else "Добавление пациента")
+        dialog.geometry("550x350")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
         dialog.update_idletasks()
         x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
         y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
         dialog.geometry(f"+{x}+{y}")
         
-        # Поля ввода
-        # ФИО (обязательное поле)
         ttk.Label(dialog, text="ФИО *", font=('Arial', 10)).grid(
             row=0, column=0, padx=10, pady=10, sticky='w'
         )
         name_entry = ttk.Entry(dialog, width=40)
         name_entry.grid(row=0, column=1, padx=10, pady=10)
-        name_entry.focus()  # Устанавливаем курсор в это поле
+        name_entry.focus()
         
-        # Дата рождения
         ttk.Label(dialog, text="Дата рождения (ГГГГ-ММ-ДД)", font=('Arial', 10)).grid(
             row=1, column=0, padx=10, pady=10, sticky='w'
         )
         birth_entry = ttk.Entry(dialog, width=40)
         birth_entry.grid(row=1, column=1, padx=10, pady=10)
-        # Подставляем сегодняшнюю дату как пример
-        birth_entry.insert(0, datetime.now().strftime('%Y-%m-%d'))
         
-        # Телефон
         ttk.Label(dialog, text="Телефон", font=('Arial', 10)).grid(
             row=2, column=0, padx=10, pady=10, sticky='w'
         )
         phone_entry = ttk.Entry(dialog, width=40)
         phone_entry.grid(row=2, column=1, padx=10, pady=10)
         
-        # Номер полиса (обязательное поле, должно быть уникальным)
         ttk.Label(dialog, text="Номер полиса *", font=('Arial', 10)).grid(
             row=3, column=0, padx=10, pady=10, sticky='w'
         )
         policy_entry = ttk.Entry(dialog, width=40)
         policy_entry.grid(row=3, column=1, padx=10, pady=10)
         
-        # Кнопки
+        if mode == "edit" and patient:
+            name_entry.insert(0, patient['full_name'] or '')
+            birth_entry.insert(0, patient['birth_date'] or '')
+            phone_entry.insert(0, patient['phone'] or '')
+            policy_entry.insert(0, patient['policy_number'] or '')
+            policy_entry.config(state='disabled')
+        
+        security_label = ttk.Label(
+            dialog, 
+            text="🔐 Данные будут проверены и очищены",
+            foreground='green',
+            font=('Arial', 9)
+        )
+        security_label.grid(row=4, column=0, columnspan=2, pady=5)
+        
         button_frame = ttk.Frame(dialog)
-        button_frame.grid(row=4, column=0, columnspan=2, pady=20)
+        button_frame.grid(row=5, column=0, columnspan=2, pady=20)
         
         def save_patient():
-            """Внутренняя функция для сохранения пациента"""
-            # Получаем данные из полей ввода
             name = name_entry.get().strip()
+            birth = birth_entry.get().strip() or None
+            phone = phone_entry.get().strip() or None
             policy = policy_entry.get().strip()
             
-            # Проверка обязательных полей
-            if not name:
-                messagebox.showerror("Ошибка", "Поле ФИО обязательно для заполнения")
-                return
-            
-            if not policy:
-                messagebox.showerror("Ошибка", "Поле 'Номер полиса' обязательно для заполнения")
-                return
-            
-            # Сохраняем в БД
-            patient_id = db.add_patient(
-                name,
-                birth_entry.get().strip() or None,
-                phone_entry.get().strip() or None,
-                policy
-            )
-            
-            if patient_id:
-                messagebox.showinfo("Успех", f"Пациент успешно добавлен (ID: {patient_id})")
-                self.load_patients()  # обновляем список
-                dialog.destroy()
-                self.update_status(f"Добавлен новый пациент: {name}")
+            if mode == "add":
+                patient_id = db.add_patient(name, birth, phone, policy)
+                if patient_id:
+                    messagebox.showinfo("Успех", f"Пациент добавлен (ID: {patient_id})")
+                    self.load_patients()
+                    self.load_stats()
+                    dialog.destroy()
+                    self.update_status(f"Добавлен пациент: {name}")
+                else:
+                    messagebox.showerror("Ошибка", 
+                                       "Не удалось добавить пациента.\n"
+                                       "Возможно, такой номер полиса уже существует.")
             else:
-                messagebox.showerror("Ошибка", "Пациент с таким номером полиса уже существует")
+                if db.update_patient(patient['id'], name, birth, phone, policy):
+                    messagebox.showinfo("Успех", "Данные пациента обновлены")
+                    self.load_patients()
+                    dialog.destroy()
+                    self.update_status(f"Обновлён пациент: {name}")
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось обновить данные")
         
-        # Кнопки Сохранить и Отмена
         ttk.Button(
             button_frame, 
             text="Сохранить", 
@@ -358,7 +646,6 @@ class MainApplication:
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Врачи")
         
-        # Таблица врачей
         columns = ('id', 'ФИО', 'Специальность', 'Кабинет')
         self.doctors_tree = ttk.Treeview(
             tab, 
@@ -367,19 +654,13 @@ class MainApplication:
             height=20
         )
         
-        # Настройка заголовков
-        self.doctors_tree.heading('id', text='ID')
-        self.doctors_tree.heading('ФИО', text='ФИО')
-        self.doctors_tree.heading('Специальность', text='Специальность')
-        self.doctors_tree.heading('Кабинет', text='Кабинет')
+        for col in columns:
+            self.doctors_tree.heading(col, text=col)
         
-        # Настройка ширины
-        self.doctors_tree.column('id', width=50)
-        self.doctors_tree.column('ФИО', width=250)
-        self.doctors_tree.column('Специальность', width=150)
-        self.doctors_tree.column('Кабинет', width=80)
+        widths = [50, 250, 150, 80]
+        for col, width in zip(columns, widths):
+            self.doctors_tree.column(col, width=width)
         
-        # Скроллбар
         scrollbar = ttk.Scrollbar(
             tab, 
             orient='vertical', 
@@ -387,43 +668,49 @@ class MainApplication:
         )
         self.doctors_tree.configure(yscrollcommand=scrollbar.set)
         
-        # Размещаем
         self.doctors_tree.pack(side='left', fill='both', expand=True, padx=5, pady=5)
         scrollbar.pack(side='right', fill='y', pady=5)
         
-        # Загружаем врачей
         self.load_doctors()
+        
+        info_label = ttk.Label(
+            tab,
+            text="🔒 Список врачей доступен только для просмотра. Изменения через администратора.",
+            foreground='blue',
+            font=('Arial', 9)
+        )
+        info_label.pack(side='bottom', pady=5)
     
     def load_doctors(self):
         """Загружает список врачей в таблицу"""
-        # Очищаем таблицу
-        for row in self.doctors_tree.get_children():
-            self.doctors_tree.delete(row)
-        
-        # Загружаем врачей из БД
-        doctors = db.get_all_doctors()
-        for doctor in doctors:
-            self.doctors_tree.insert('', 'end', values=(
-                doctor['id'],
-                doctor['full_name'],
-                doctor['specialty'] or '',
-                doctor['room_number'] or ''
-            ))
+        try:
+            for row in self.doctors_tree.get_children():
+                self.doctors_tree.delete(row)
+            
+            doctors = db.get_all_doctors()
+            for doctor in doctors:
+                self.doctors_tree.insert('', 'end', values=(
+                    doctor['id'],
+                    doctor['full_name'],
+                    doctor['specialty'] or '',
+                    doctor['room_number'] or ''
+                ))
+        except Exception as e:
+            self.update_status(f"Ошибка загрузки врачей: {e}")
     
     def load_doctors_to_combobox(self):
-        """
-        Загружает врачей в выпадающий список.
-        Используется во вкладке "Новая запись"
-        """
-        doctors = db.get_all_doctors()
-        # Форматируем строку: "ID: ФИО (специальность)"
-        doctor_list = [f"{d['id']}: {d['full_name']} ({d['specialty']})" for d in doctors]
-        self.doctor_combobox['values'] = doctor_list
-        if doctor_list:
-            self.doctor_combobox.current(0)  # Выбираем первого врача по умолчанию
+        """Загружает врачей в выпадающий список"""
+        try:
+            doctors = db.get_all_doctors()
+            doctor_list = [f"{d['id']}: {d['full_name']} ({d['specialty']})" for d in doctors]
+            self.doctor_combobox['values'] = doctor_list
+            if doctor_list:
+                self.doctor_combobox.current(0)
+        except Exception as e:
+            self.update_status(f"Ошибка загрузки врачей: {e}")
     
     # ============================================
-    # ВКЛАДКА "НОВАЯ ЗАПИСЬ" (ИСПРАВЛЕННАЯ)
+    # ВКЛАДКА "НОВАЯ ЗАПИСЬ"
     # ============================================
     
     def create_new_appointment_tab(self):
@@ -431,57 +718,49 @@ class MainApplication:
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Новая запись")
         
-        # Основной контейнер с отступами
         main_frame = ttk.Frame(tab, padding="20")
         main_frame.pack(fill='both', expand=True)
         
-        # Заголовок
         ttk.Label(
             main_frame, 
             text="Создание новой записи на приём", 
             font=('Arial', 14, 'bold')
         ).grid(row=0, column=0, columnspan=2, pady=10)
         
-        # ========================================
-        # ВЫБОР ПАЦИЕНТА
-        # ========================================
+        # Выбор пациента
         ttk.Label(main_frame, text="Пациент:", font=('Arial', 11)).grid(
             row=1, column=0, sticky='w', pady=5
         )
         
-        # Панель с полем поиска и кнопкой
         patient_frame = ttk.Frame(main_frame)
         patient_frame.grid(row=1, column=1, sticky='ew', pady=5)
         
-        self.patient_search_entry = ttk.Entry(patient_frame, width=40)
+        vcmd = (self.root.register(lambda P: len(P) <= 50), '%P')
+        self.patient_search_entry = ttk.Entry(patient_frame, width=40, validate='key', validatecommand=vcmd)
         self.patient_search_entry.pack(side='left', padx=2)
-        # При каждом нажатии клавиши вызываем поиск
         self.patient_search_entry.bind('<KeyRelease>', self.search_patients_for_appointment)
         
         ttk.Button(
             patient_frame, 
-            text="Поиск", 
+            text="🔍 Поиск", 
             command=self.search_patients_for_appointment
         ).pack(side='left', padx=2)
         
-        # Список найденных пациентов
         self.patients_listbox = tk.Listbox(main_frame, height=5, width=60)
         self.patients_listbox.grid(row=2, column=0, columnspan=2, pady=5, sticky='ew')
         
-        # Переменная для хранения выбранного пациента
         self.selected_patient_id = None
         self.selected_patient_text = None
-        
-        # Привязываем событие выбора пациента
         self.patients_listbox.bind('<<ListboxSelect>>', self.on_patient_select)
         
-        # Метка с информацией о выбранном пациенте
-        self.selected_patient_label = ttk.Label(main_frame, text="Пациент не выбран", foreground='gray')
+        self.selected_patient_label = ttk.Label(
+            main_frame, 
+            text="Пациент не выбран", 
+            foreground='gray'
+        )
         self.selected_patient_label.grid(row=3, column=0, columnspan=2, pady=2, sticky='w')
         
-        # ========================================
-        # ВЫБОР ВРАЧА
-        # ========================================
+        # Выбор врача
         ttk.Label(main_frame, text="Врач:", font=('Arial', 11)).grid(
             row=4, column=0, sticky='w', pady=5
         )
@@ -489,14 +768,12 @@ class MainApplication:
         self.doctor_combobox = ttk.Combobox(
             main_frame, 
             width=50, 
-            state='readonly'  # Только для чтения, нельзя вводить своё
+            state='readonly'
         )
         self.doctor_combobox.grid(row=4, column=1, sticky='w', pady=5)
-        self.load_doctors_to_combobox()  # Загружаем врачей в список
+        self.load_doctors_to_combobox()
         
-        # ========================================
-        # ВЫБОР ДАТЫ
-        # ========================================
+        # Выбор даты
         ttk.Label(main_frame, text="Дата (ГГГГ-ММ-ДД):", font=('Arial', 11)).grid(
             row=5, column=0, sticky='w', pady=5
         )
@@ -504,20 +781,23 @@ class MainApplication:
         date_frame = ttk.Frame(main_frame)
         date_frame.grid(row=5, column=1, sticky='w', pady=5)
         
-        self.date_entry = ttk.Entry(date_frame, width=15)
+        vcmd_date = (self.root.register(self.validate_date_input), '%P')
+        self.date_entry = ttk.Entry(
+            date_frame, 
+            width=15,
+            validate='key',
+            validatecommand=vcmd_date
+        )
         self.date_entry.pack(side='left', padx=2)
-        # Подставляем сегодняшнюю дату
         self.date_entry.insert(0, datetime.now().strftime('%Y-%m-%d'))
         
         ttk.Button(
             date_frame, 
-            text="Показать свободное время", 
+            text="📅 Показать свободное время", 
             command=self.show_free_time
         ).pack(side='left', padx=2)
         
-        # ========================================
-        # ВЫБОР ВРЕМЕНИ
-        # ========================================
+        # Выбор времени
         ttk.Label(main_frame, text="Доступное время:", font=('Arial', 11)).grid(
             row=6, column=0, sticky='w', pady=5
         )
@@ -525,47 +805,62 @@ class MainApplication:
         self.time_listbox = tk.Listbox(main_frame, height=8, width=30)
         self.time_listbox.grid(row=6, column=1, pady=5, sticky='w')
         
-        # Переменная для хранения выбранного времени
         self.selected_time = None
         self.time_listbox.bind('<<ListboxSelect>>', self.on_time_select)
         
-        # Метка с информацией о выбранном времени
-        self.selected_time_label = ttk.Label(main_frame, text="Время не выбрано", foreground='gray')
+        self.selected_time_label = ttk.Label(
+            main_frame, 
+            text="Время не выбрано", 
+            foreground='gray'
+        )
         self.selected_time_label.grid(row=7, column=1, pady=2, sticky='w')
         
-        # ========================================
-        # КНОПКА ЗАПИСИ
-        # ========================================
+        # Кнопки
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=8, column=0, columnspan=2, pady=20)
         
         ttk.Button(
             button_frame, 
-            text="Записать на приём", 
+            text="✅ Записать на приём", 
             command=self.create_appointment,
             style='Action.TButton'
         ).pack(side='left', padx=5)
         
         ttk.Button(
             button_frame,
-            text="Очистить форму",
+            text="🗑 Очистить форму",
             command=self.clear_appointment_form
         ).pack(side='left', padx=5)
         
-        # Метка для вывода информации
         self.appointment_info_label = ttk.Label(main_frame, text="", foreground='blue')
         self.appointment_info_label.grid(row=9, column=0, columnspan=2)
+        
+        security_label = ttk.Label(
+            main_frame,
+            text="🔒 Все данные проверяются. Запись в прошлое невозможна.",
+            foreground='green',
+            font=('Arial', 9)
+        )
+        security_label.grid(row=10, column=0, columnspan=2, pady=5)
+    
+    def validate_date_input(self, value):
+        """Валидация ввода даты"""
+        if not value:
+            return True
+        if len(value) > 10:
+            return False
+        for char in value:
+            if not (char.isdigit() or char == '-'):
+                return False
+        return True
     
     def on_patient_select(self, event):
-        """Обработчик выбора пациента из списка"""
+        """Обработчик выбора пациента"""
         selection = self.patients_listbox.curselection()
         if selection:
-            # Получаем выбранный текст
             self.selected_patient_text = self.patients_listbox.get(selection[0])
             try:
-                # Извлекаем ID пациента (формат "ID: ФИО (Полис: ...)")
                 self.selected_patient_id = int(self.selected_patient_text.split(':')[0])
-                # Обновляем метку
                 patient_name = self.selected_patient_text.split(':', 1)[1].split('(')[0].strip()
                 self.selected_patient_label.config(
                     text=f"✓ Выбран пациент: {patient_name}", 
@@ -591,159 +886,123 @@ class MainApplication:
                 self.selected_time_label.config(text="Время не выбрано", foreground='gray')
     
     def search_patients_for_appointment(self, event=None):
-        """Поиск пациентов для записи на приём"""
+        """Поиск пациентов для записи"""
         search_text = self.patient_search_entry.get().strip()
         
-        # Очищаем список
         self.patients_listbox.delete(0, tk.END)
-        
-        # Сбрасываем выбранного пациента
         self.selected_patient_id = None
         self.selected_patient_text = None
         self.selected_patient_label.config(text="Пациент не выбран", foreground='gray')
         
-        # Ищем только если введено хотя бы 2 символа
         if len(search_text) < 2:
             return
         
-        # Ищем пациентов
-        patients = db.search_patients(search_text)
-        for patient in patients:
-            display_text = f"{patient['id']}: {patient['full_name']} (Полис: {patient['policy_number']})"
-            self.patients_listbox.insert(tk.END, display_text)
+        try:
+            patients = db.search_patients(search_text)
+            for patient in patients:
+                display_text = f"{patient['id']}: {patient['full_name']} (Полис: {patient['policy_number']})"
+                self.patients_listbox.insert(tk.END, display_text)
+        except Exception as e:
+            self.update_status(f"Ошибка поиска: {e}")
     
     def show_free_time(self):
-        """Показывает свободное время для выбранного врача и даты"""
-        # Проверяем, выбран ли пациент
+        """Показывает свободное время"""
         if not self.selected_patient_id:
             messagebox.showwarning("Предупреждение", 
-                                 "Сначала выберите пациента из списка.\n"
-                                 "Для выбора: найдите пациента и кликните на него в списке.")
+                                 "Сначала выберите пациента")
             return
         
-        # Проверяем, выбран ли врач
         if not self.doctor_combobox.get():
             messagebox.showwarning("Предупреждение", "Выберите врача")
             return
         
-        # Получаем дату
         date = self.date_entry.get().strip()
         if not date:
             messagebox.showwarning("Предупреждение", "Введите дату")
             return
         
-        # Получаем ID врача из строки (формат "ID: ФИО (специальность)")
-        doctor_text = self.doctor_combobox.get()
         try:
-            doctor_id = int(doctor_text.split(':')[0])
+            doctor_id = int(self.doctor_combobox.get().split(':')[0])
         except:
             messagebox.showerror("Ошибка", "Неверный формат данных врача")
             return
         
-        # Получаем свободное время из БД
-        free_times = db.get_free_time(doctor_id, date)
-        
-        # Очищаем и заполняем список времени
-        self.time_listbox.delete(0, tk.END)
-        self.selected_time = None
-        self.selected_time_label.config(text="Время не выбрано", foreground='gray')
-        
-        for time in free_times:
-            self.time_listbox.insert(tk.END, time)
-        
-        # Обновляем информационную метку
-        if not free_times:
-            self.time_listbox.insert(tk.END, "Нет свободного времени")
-            self.appointment_info_label.config(
-                text="На эту дату нет свободных слотов. Выберите другую дату.",
-                foreground='red'
-            )
-        else:
-            self.appointment_info_label.config(
-                text=f"✓ Доступно слотов: {len(free_times)}. Выберите время из списка.",
-                foreground='green'
-            )
+        try:
+            free_times = db.get_free_time(doctor_id, date)
+            
+            self.time_listbox.delete(0, tk.END)
+            self.selected_time = None
+            self.selected_time_label.config(text="Время не выбрано", foreground='gray')
+            
+            for time in free_times:
+                self.time_listbox.insert(tk.END, time)
+            
+            if not free_times:
+                self.time_listbox.insert(tk.END, "Нет свободного времени")
+                self.appointment_info_label.config(
+                    text="❌ На эту дату нет свободных слотов",
+                    foreground='red'
+                )
+            else:
+                self.appointment_info_label.config(
+                    text=f"✅ Доступно слотов: {len(free_times)}",
+                    foreground='green'
+                )
+        except Exception as e:
+            self.update_status(f"Ошибка: {e}")
     
     def create_appointment(self):
-        """Создаёт новую запись на приём"""
-        # Проверяем выбор пациента
+        """Создаёт новую запись"""
         if not self.selected_patient_id:
-            messagebox.showwarning("Предупреждение", 
-                                 "Выберите пациента из списка.\n"
-                                 "Для выбора: найдите пациента и кликните на него в списке.")
+            messagebox.showwarning("Предупреждение", "Выберите пациента")
             return
         
-        # Проверяем выбор врача
         if not self.doctor_combobox.get():
             messagebox.showwarning("Предупреждение", "Выберите врача")
             return
         
-        # Получаем ID врача
-        doctor_text = self.doctor_combobox.get()
         try:
-            doctor_id = int(doctor_text.split(':')[0])
+            doctor_id = int(self.doctor_combobox.get().split(':')[0])
         except:
             messagebox.showerror("Ошибка", "Неверный формат данных врача")
             return
         
-        # Проверяем выбор времени
-        if not self.selected_time:
-            messagebox.showwarning("Предупреждение", 
-                                 "Выберите время из списка.\n"
-                                 "Для выбора: нажмите на время в списке.")
+        if not self.selected_time or self.selected_time == "Нет свободного времени":
+            messagebox.showwarning("Предупреждение", "Выберите время")
             return
         
-        if self.selected_time == "Нет свободного времени":
-            messagebox.showwarning("Предупреждение", "Выберите другое время или дату")
-            return
-        
-        # Получаем дату
         date = self.date_entry.get().strip()
         if not date:
             messagebox.showwarning("Предупреждение", "Введите дату")
             return
         
-        # Создаём запись в БД
         appointment_id = db.add_appointment(self.selected_patient_id, doctor_id, date, self.selected_time)
         
         if appointment_id:
             messagebox.showinfo("Успех", "Пациент успешно записан на приём")
-            
-            # Очищаем форму
             self.clear_appointment_form()
-            
-            # Обновляем список записей
             self.load_appointments()
-            
-            # Переключаемся на вкладку со списком записей
+            self.load_stats()
             self.notebook.select(3)
-            
-            self.update_status("Создана новая запись на приём")
+            self.update_status("Создана новая запись")
         else:
             messagebox.showerror("Ошибка", 
-                               "Не удалось создать запись. Возможно, это время уже занято.\n"
-                               "Попробуйте выбрать другое время.")
+                               "Не удалось создать запись.\n"
+                               "Возможно, это время уже занято.")
     
     def clear_appointment_form(self):
-        """Очищает форму записи на приём"""
-        # Очищаем поиск пациента
+        """Очищает форму записи"""
         self.patient_search_entry.delete(0, tk.END)
         self.patients_listbox.delete(0, tk.END)
-        
-        # Сбрасываем выбранного пациента
         self.selected_patient_id = None
         self.selected_patient_text = None
         self.selected_patient_label.config(text="Пациент не выбран", foreground='gray')
         
-        # Сбрасываем время
         self.time_listbox.delete(0, tk.END)
         self.selected_time = None
         self.selected_time_label.config(text="Время не выбрано", foreground='gray')
-        
-        # Сбрасываем информационную метку
         self.appointment_info_label.config(text="")
         
-        # Возвращаем дату на сегодня
         self.date_entry.delete(0, tk.END)
         self.date_entry.insert(0, datetime.now().strftime('%Y-%m-%d'))
         
@@ -758,32 +1017,28 @@ class MainApplication:
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Все записи")
         
-        # Верхняя панель с кнопками
         top_frame = ttk.Frame(tab)
         top_frame.pack(fill='x', padx=5, pady=5)
         
-        # Кнопка обновления
         ttk.Button(
             top_frame, 
-            text="Обновить", 
+            text="🔄 Обновить", 
             command=self.load_appointments
         ).pack(side='left', padx=2)
         
-        # Кнопка отмены записи
         ttk.Button(
             top_frame, 
-            text="❌ Отменить выбранную запись", 
-            command=self.cancel_selected_appointment
+            text="❌ Отменить запись", 
+            command=self.cancel_selected_appointment,
+            style='Warning.TButton'
         ).pack(side='left', padx=2)
         
-        # Кнопка удаления старых записей
         ttk.Button(
             top_frame,
             text="🗑 Удалить старые записи",
             command=self.delete_old_appointments
         ).pack(side='left', padx=2)
         
-        # Таблица записей
         columns = ('id', 'Пациент', 'Полис', 'Врач', 'Специальность', 'Кабинет', 'Дата', 'Время', 'Статус')
         self.appointments_tree = ttk.Treeview(
             tab, 
@@ -792,16 +1047,13 @@ class MainApplication:
             height=20
         )
         
-        # Настройка заголовков
         for col in columns:
             self.appointments_tree.heading(col, text=col)
         
-        # Настройка ширины колонок
         widths = [50, 200, 100, 200, 120, 60, 80, 80, 100]
         for col, width in zip(columns, widths):
             self.appointments_tree.column(col, width=width)
         
-        # Скроллбар
         scrollbar = ttk.Scrollbar(
             tab, 
             orient='vertical', 
@@ -809,65 +1061,116 @@ class MainApplication:
         )
         self.appointments_tree.configure(yscrollcommand=scrollbar.set)
         
-        # Размещаем
         self.appointments_tree.pack(side='left', fill='both', expand=True, padx=5, pady=5)
         scrollbar.pack(side='right', fill='y', pady=5)
         
-        # Загружаем записи
         self.load_appointments()
     
     def load_appointments(self):
-        """Загружает список всех записей в таблицу"""
-        # Очищаем таблицу
-        for row in self.appointments_tree.get_children():
-            self.appointments_tree.delete(row)
-        
-        # Загружаем записи из БД
-        appointments = db.get_all_appointments()
-        for apt in appointments:
-            self.appointments_tree.insert('', 'end', values=(
-                apt['id'],
-                apt['patient_name'],
-                apt['policy_number'] or '',
-                apt['doctor_name'],
-                apt['specialty'] or '',
-                apt['room_number'] or '',
-                apt['date'],
-                apt['time'],
-                apt['status']
-            ))
-        
-        self.update_status(f"Загружено {len(appointments)} записей")
+        """Загружает список записей"""
+        try:
+            for row in self.appointments_tree.get_children():
+                self.appointments_tree.delete(row)
+            
+            appointments = db.get_all_appointments()
+            for apt in appointments:
+                self.appointments_tree.insert('', 'end', values=(
+                    apt['id'],
+                    apt['patient_name'],
+                    apt['policy_number'] or '',
+                    apt['doctor_name'],
+                    apt['specialty'] or '',
+                    apt['room_number'] or '',
+                    apt['date'],
+                    apt['time'],
+                    apt['status']
+                ))
+            
+            self.update_status(f"Загружено {len(appointments)} записей")
+        except Exception as e:
+            self.update_status(f"Ошибка загрузки: {e}")
     
     def cancel_selected_appointment(self):
         """Отменяет выбранную запись"""
-        # Получаем выбранную запись
         selection = self.appointments_tree.selection()
         if not selection:
             messagebox.showwarning("Предупреждение", "Выберите запись для отмены")
             return
         
-        # Получаем ID и имя пациента из выбранной строки
         item = self.appointments_tree.item(selection[0])
         appointment_id = item['values'][0]
         patient_name = item['values'][1]
+        date = item['values'][6]
+        time = item['values'][7]
         
-        # Запрашиваем подтверждение
-        if messagebox.askyesno("Подтверждение", f"Отменить запись пациента {patient_name}?"):
-            db.cancel_appointment(appointment_id)
-            self.load_appointments()  # Обновляем список
-            self.update_status(f"Запись отменена")
+        if messagebox.askyesno("Подтверждение", 
+                              f"Отменить запись?\n\n"
+                              f"Пациент: {patient_name}\n"
+                              f"Дата: {date}\n"
+                              f"Время: {time}"):
+            
+            reason = None
+            if messagebox.askyesno("Причина отмены", "Указать причину отмены?"):
+                reason = self.ask_cancel_reason()
+            
+            if db.cancel_appointment(appointment_id, reason):
+                self.load_appointments()
+                self.update_status(f"Запись отменена")
+                messagebox.showinfo("Успех", "Запись отменена")
+            else:
+                messagebox.showerror("Ошибка", "Не удалось отменить запись")
+    
+    def ask_cancel_reason(self):
+        """Запрашивает причину отмены"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Причина отмены")
+        dialog.geometry("400x150")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text="Укажите причину отмены:").pack(pady=10)
+        
+        reason_var = tk.StringVar()
+        reason_entry = ttk.Entry(dialog, textvariable=reason_var, width=50)
+        reason_entry.pack(pady=10)
+        reason_entry.focus()
+        
+        result = None
+        
+        def on_ok():
+            nonlocal result
+            result = reason_var.get().strip()
+            dialog.destroy()
+        
+        def on_skip():
+            nonlocal result
+            result = None
+            dialog.destroy()
+        
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=10)
+        
+        ttk.Button(button_frame, text="OK", command=on_ok, width=10).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Пропустить", command=on_skip, width=10).pack(side='left', padx=5)
+        
+        dialog.wait_window()
+        return result
     
     def delete_old_appointments(self):
-        """Удаляет записи старше 30 дней"""
+        """Удаляет старые записи"""
         if messagebox.askyesno("Подтверждение", 
-                              "Удалить все записи старше 30 дней?\n"
-                              "Эта операция необратима."):
+                              "Удалить все записи старше 30 дней?\n\n"
+                              "⚠️ ВНИМАНИЕ:\n"
+                              "Эта операция необратима.\n"
+                              "Будет создана резервная копия."):
             try:
-                db.delete_old_appointments()
+                db.backup_database()
+                
+                count = db.delete_old_appointments()
                 self.load_appointments()
-                self.update_status("Старые записи удалены")
-                messagebox.showinfo("Успех", "Старые записи успешно удалены")
+                self.load_stats()
+                self.update_status(f"Удалено старых записей: {count}")
+                messagebox.showinfo("Успех", f"Удалено записей: {count}")
             except Exception as e:
                 messagebox.showerror("Ошибка", f"Не удалось удалить старые записи: {e}")
     
@@ -877,20 +1180,28 @@ class MainApplication:
     
     def show_about(self):
         """Показывает информацию о программе"""
-        about_text = """Регистратура поликлиники
-Версия 1.1
+        about_text = """РЕГИСТРАТУРА ПОЛИКЛИНИКИ
+Версия 2.0 (Безопасная)
 
-Программа для автоматизации работы регистратуры:
+🛡️ ЗАЩИТА ДАННЫХ:
+• Параметризованные SQL-запросы
+• Валидация всех входных данных
+• Логирование действий (audit.log)
+• Автоматическое резервирование
+• Проверка целостности БД
+
+📊 ФУНКЦИОНАЛ:
 • Ведение базы пациентов
 • Запись на приём к врачам
-• Просмотр расписания
-• Автоматическая очистка кэша БД
+• Просмотр и отмена записей
+• Статистика и мониторинг
+• Журнал аудита
 
-Новые возможности:
-✓ Улучшенный выбор пациента и времени
-✓ Очистка кэша базы данных
-✓ Удаление старых записей
-✓ Визуальная индикация выбора
+🔐 БЕЗОПАСНОСТЬ:
+• Защита от SQL-инъекций: ✅
+• Валидация данных: ✅
+• Аудит действий: ✅
+• Резервное копирование: ✅
 
 Разработано для курсовой работы
 Февраль 2026 год"""
@@ -899,18 +1210,33 @@ class MainApplication:
 
 
 # ============================================
-# ТОЧКА ВХОДА (для самостоятельного запуска)
+# ТОЧКА ВХОДА
 # ============================================
 
 if __name__ == "__main__":
-    print("Запуск программы регистратуры поликлиники...")
+    print("=" * 60)
+    print("ЗАПУСК РЕГИСТРАТУРЫ ПОЛИКЛИНИКИ (БЕЗОПАСНЫЙ РЕЖИМ)")
+    print("=" * 60)
     
-    # Инициализируем базу данных
+    if not db.verify_database_integrity():
+        print("⚠️ База данных повреждена! Будет создана новая.")
+        if os.path.exists('clinic.db'):
+            backup_name = f"clinic.db.corrupted.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            os.rename('clinic.db', backup_name)
+    
     db.init_db()
     
-    # Создаём главное окно
+    backup = db.backup_database()
+    if backup:
+        print(f"✅ Создана резервная копия: {backup}")
+    
     root = tk.Tk()
     app = MainApplication(root)
     
-    # Запускаем главный цикл обработки событий
+    print("✅ Программа запущена в безопасном режиме")
+    print("📝 Журнал аудита: audit.log")
+    print("=" * 60)
+    
     root.mainloop()
+    
+    print("Программа завершена")

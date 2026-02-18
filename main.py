@@ -7,9 +7,9 @@
 import sys
 import os
 import sqlite3
+from datetime import datetime
 
 # Добавляем текущую папку в путь поиска модулей
-# Это нужно, чтобы Python нашёл наши файлы database.py и gui.py
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Импортируем наши модули
@@ -17,75 +17,100 @@ from gui import MainApplication
 import tkinter as tk
 import database as db
 
+def setup_environment():
+    """
+    Настройка безопасного окружения перед запуском.
+    """
+    print("🔧 Настройка безопасного окружения...")
+    
+    # Создаём необходимые папки
+    os.makedirs("backups", exist_ok=True)
+    
+    # Проверяем права доступа к файлам
+    for filename in ['clinic.db', 'audit.log']:
+        if os.path.exists(filename):
+            if not os.access(filename, os.W_OK):
+                print(f"⚠️  Файл {filename} защищён от записи!")
+                try:
+                    os.chmod(filename, 0o666)
+                    print(f"   Права восстановлены")
+                except:
+                    print(f"   ❌ Не удалось изменить права")
+    
+    print("✅ Окружение настроено")
+
 def check_database():
     """
     Проверяет целостность базы данных.
-    Если файл повреждён - удаляет его.
     
     Returns:
-        bool: True если БД в порядке или создана заново
+        bool: True если БД в порядке
     """
     db_file = 'clinic.db'
     
-    # Если файла нет - всё хорошо, он создастся при инициализации
     if not os.path.exists(db_file):
-        print("Файл базы данных будет создан")
+        print("📁 Файл базы данных будет создан")
         return True
     
-    # Проверяем, можно ли открыть базу
     try:
-        # Пробуем подключиться и выполнить простой запрос
         conn = sqlite3.connect(db_file)
         conn.execute("SELECT 1")
         conn.close()
-        print("Файл базы данных найден и корректен")
+        print("✅ Файл базы данных корректен")
         return True
-    except sqlite3.DatabaseError:
-        # Если файл повреждён, удаляем его
-        print(f"Файл {db_file} повреждён. Удаляем...")
-        os.remove(db_file)
+    except sqlite3.DatabaseError as e:
+        print(f"❌ Файл {db_file} повреждён: {e}")
+        
+        if os.path.exists(db_file):
+            backup_name = f"clinic.db.corrupted.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            os.rename(db_file, backup_name)
+            print(f"💾 Создан бэкап повреждённого файла: {backup_name}")
+        
         return False
+
+def print_banner():
+    """Выводит красивый баннер при запуске"""
+    banner = """
+╔══════════════════════════════════════════════════════════╗
+║     РЕГИСТРАТУРА ПОЛИКЛИНИКИ v2.0 (БЕЗОПАСНЫЙ РЕЖИМ)    ║
+╠══════════════════════════════════════════════════════════╣
+║  🛡️  Защита:                                              ║
+║     • Параметризованные SQL-запросы                      ║
+║     • Валидация всех входных данных                       ║
+║     • Логирование действий (audit.log)                    ║
+║     • Автоматическое резервирование                        ║
+║     • Проверка целостности БД                              ║
+╚══════════════════════════════════════════════════════════╝
+"""
+    print(banner)
 
 def main():
     """
     Главная функция программы.
-    Запускает всё приложение.
     """
-    # Печатаем красивый заголовок
-    print("=" * 60)
-    print("РЕГИСТРАТУРА ПОЛИКЛИНИКИ")
-    print("=" * 60)
-    print("Версия 1.0")
-    print("Разработано для курсовой работы")
-    print("-" * 60)
+    print_banner()
     
-    # Проверяем базу данных
-    check_database()
+    setup_environment()
     
-    print("Инициализация базы данных...")
+    if not check_database():
+        print("⚠️  База данных будет создана заново")
     
-    # Создаём базу данных, если её нет, или подключаемся к существующей
+    print("\n🔄 Инициализация базы данных...")
     db.init_db()
     
-    print("Запуск графического интерфейса...")
+    print("\n🚀 Запуск графического интерфейса...")
     print("-" * 60)
     
-    # Создаём главное окно tkinter
     root = tk.Tk()
-    
-    # Создаём экземпляр нашего приложения
     app = MainApplication(root)
     
-    print("Программа запущена. Готово к работе.")
+    print("✅ Программа запущена в безопасном режиме")
+    print("📝 Журнал аудита: audit.log")
     print("=" * 60)
     
-    # Запускаем главный цикл обработки событий
-    # Программа будет работать, пока пользователь не закроет окно
     root.mainloop()
     
-    print("Программа завершена.")
+    print("Программа завершена")
 
-# Это условие проверяет, запущен ли файл напрямую
-# (а не импортирован как модуль)
 if __name__ == "__main__":
     main()
