@@ -74,11 +74,11 @@ def validate_policy_number(policy):
     
     policy = policy.strip()
     
-    if len(policy) < 10 or len(policy) > 20:
-        return False, "Номер полиса должен содержать от 10 до 20 символов"
+    if len(policy) != 16:
+        return False, "Номер полиса должен содержать ровно 16 цифр"
     
-    if not re.match(r'^[0-9\-\s]+$', policy):
-        return False, "Номер полиса может содержать только цифры, дефисы и пробелы"
+    if not re.match(r'^\d+$', policy):
+        return False, "Номер полиса может содержать только цифры"
     
     return True, "OK"
 
@@ -427,7 +427,7 @@ def add_patient(full_name, birth_date, phone, policy):
         return None
     
     valid, msg = validate_date(birth_date)
-    if not valid:
+    if not valid and birth_date:
         log_action("VALIDATION_ERROR", f"Invalid birth date: {msg}")
         return None
     
@@ -495,7 +495,7 @@ def update_patient(patient_id, full_name, birth_date, phone, policy):
         return False
     
     valid, msg = validate_date(birth_date)
-    if not valid:
+    if not valid and birth_date:
         log_action("VALIDATION_ERROR", f"Invalid birth date for update: {msg}")
         return False
     

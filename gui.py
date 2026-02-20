@@ -1,15 +1,207 @@
 """
 Модуль с графическим интерфейсом программы.
 Использует библиотеку tkinter.
+Добавлены календари для выбора дат и улучшенная валидация ввода.
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime, timedelta
+import calendar
 import database as db
 import os
 
-class MainApplication:
+class DatePicker:
+    """
+    Класс для выбора даты с календарем.
+    """
+    
+    def __init__(self, parent, initial_date=None, callback=None, min_date=None, max_date=None):
+        """
+        Инициализация календаря.
+        
+        Args:
+            parent: родительский виджет
+            initial_date: начальная дата (datetime или None)
+            callback: функция, вызываемая при выборе даты
+            min_date: минимальная допустимая дата
+            max_date: максимальная допустимая дата
+        """
+        self.parent = parent
+        self.callback = callback
+        self.min_date = min_date or datetime(1900, 1, 1).date()
+        self.max_date = max_date or datetime(2100, 12, 31).date()
+        
+        if initial_date:
+            if isinstance(initial_date, str):
+                try:
+                    self.current_date = datetime.strptime(initial_date, '%Y-%m-%d').date()
+                except:
+                    self.current_date = datetime.now().date()
+            else:
+                self.current_date = initial_date
+        else:
+            self.current_date = datetime.now().date()
+        
+        self.selected_date = None
+        self.create_widgets()
+    
+    def create_widgets(self):
+        """Создает виджеты календаря."""
+        self.frame = ttk.Frame(self.parent)
+        
+        # Заголовок с месяцем и годом
+        header_frame = ttk.Frame(self.frame)
+        header_frame.pack(fill='x', pady=5)
+        
+        self.month_year_label = ttk.Label(header_frame, text="", font=('Arial', 10, 'bold'))
+        self.month_year_label.pack(side='left', padx=10)
+        
+        nav_frame = ttk.Frame(header_frame)
+        nav_frame.pack(side='right')
+        
+        ttk.Button(nav_frame, text="◀", width=3, command=self.prev_month).pack(side='left', padx=2)
+        ttk.Button(nav_frame, text="▶", width=3, command=self.next_month).pack(side='left', padx=2)
+        ttk.Button(nav_frame, text="Сегодня", command=self.go_today).pack(side='left', padx=5)
+        
+        # Дни недели
+        days_frame = ttk.Frame(self.frame)
+        days_frame.pack(fill='x', pady=5)
+        
+        days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+        for i, day in enumerate(days):
+            label = ttk.Label(days_frame, text=day, width=4, anchor='center', font=('Arial', 9, 'bold'))
+            label.grid(row=0, column=i, padx=1, pady=1)
+        
+        # Календарь
+        self.calendar_frame = ttk.Frame(self.frame)
+        self.calendar_frame.pack(fill='both', expand=True)
+        
+        self.update_calendar()
+    
+    def update_calendar(self):
+        """Обновляет отображение календаря."""
+        # Очищаем старый календарь
+        for widget in self.calendar_frame.winfo_children():
+            widget.destroy()
+        
+        # Обновляем заголовок
+        month_names = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                       'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
+        self.month_year_label.config(text=f"{month_names[self.current_date.month-1]} {self.current_date.year}")
+        
+        # Получаем календарь на месяц
+        cal = calendar.monthcalendar(self.current_date.year, self.current_date.month)
+        
+        # Создаем кнопки для дней
+        for week_num, week in enumerate(cal):
+            for day_num, day in enumerate(week):
+                if day == 0:
+                    # Пустой день
+                    btn = ttk.Label(self.calendar_frame, text="", width=4)
+                    btn.grid(row=week_num, column=day_num, padx=1, pady=1)
+                else:
+                    # День с числом
+                    date = datetime(self.current_date.year, self.current_date.month, day).date()
+                    
+                    # Проверяем, доступна ли дата
+                    is_valid = self.min_date <= date <= self.max_date
+                    is_today = date == datetime.now().date()
+                    
+                    # Стиль кнопки
+                    btn_style = 'Calendar.TButton'
+                    btn = ttk.Button(
+                        self.calendar_frame,
+                        text=str(day),
+                        width=4,
+                        command=lambda d=date: self.select_date(d)
+                    )
+                    
+                    # Применяем стили
+                    if not is_valid:
+                        btn.state(['disabled'])
+                    
+                    btn.grid(row=week_num, column=day_num, padx=1, pady=1)
+    
+    def select_date(self, date):
+        """Выбирает дату."""
+        self.selected_date = date
+        if self.callback:
+            self.callback(date.strftime('%Y-%m-%d'))
+        self.frame.destroy()
+    
+    def prev_month(self):
+        """Переход к предыдущему месяцу."""
+        if self.current_date.month == 1:
+            self.current_date = self.current_date.replace(year=self.current_date.year-1, month=12)
+        else:
+            self.current_date = self.current_date.replace(month=self.current_date.month-1)
+        self.update_calendar()
+    
+    def next_month(self):
+        """Переход к следующему месяцу."""
+        if self.current_date.month == 12:
+            self.current_date = self.current_date.replace(year=self.current_date.year+1, month=1)
+        else:
+            self.current_date = self.current_date.replace(month=self.current_date.month+1)
+        self.update_calendar()
+    
+    def go_today(self):
+        """Переход к текущей дате."""
+        self.current_date = datetime.now().date()
+        self.update_calendar()
+
+class ValidationMixin:
+    """
+    Миксин для валидации ввода.
+    """
+    
+    @staticmethod
+    def validate_letters_only(text):
+        """
+        Проверяет, что текст содержит только буквы, пробелы, дефисы и точки.
+        
+        Args:
+            text (str): текст для проверки
+        
+        Returns:
+            bool: True если валидно
+        """
+        if not text:
+            return True
+        return all(c.isalpha() or c.isspace() or c in '-.' for c in text)
+    
+    @staticmethod
+    def validate_digits_only(text):
+        """
+        Проверяет, что текст содержит только цифры.
+        
+        Args:
+            text (str): текст для проверки
+        
+        Returns:
+            bool: True если валидно
+        """
+        if not text:
+            return True
+        return all(c.isdigit() for c in text)
+    
+    @staticmethod
+    def validate_phone_chars(text):
+        """
+        Проверяет, что текст содержит допустимые символы для телефона.
+        
+        Args:
+            text (str): текст для проверки
+        
+        Returns:
+            bool: True если валидно
+        """
+        if not text:
+            return True
+        return all(c.isdigit() or c in '+ -()' for c in text)
+
+class MainApplication(ValidationMixin):
     """
     Главный класс приложения.
     Содержит все методы для создания интерфейса и обработки событий.
@@ -189,9 +381,9 @@ class MainApplication:
    • Последний бэкап: {stats['last_backup'] or 'нет'}
 
 ЗАЩИТА:
-   • SQL-инъекции: ✅ Заблокированы
-   • Валидация данных: ✅ Активна
-   • Логирование: ✅ Включено
+   • SQL-инъекции: Заблокированы
+   • Валидация данных: Активна
+   • Логирование: Включено
    • Журнал аудита: {log_size} КБ
 
 ВНИМАНИЕ:
@@ -544,7 +736,7 @@ class MainApplication:
         """
         dialog = tk.Toplevel(self.root)
         dialog.title("Редактирование пациента" if mode == "edit" else "Добавление пациента")
-        dialog.geometry("550x350")
+        dialog.geometry("600x400")
         dialog.transient(self.root)
         dialog.grab_set()
         
@@ -553,30 +745,88 @@ class MainApplication:
         y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
         dialog.geometry(f"+{x}+{y}")
         
+        # ФИО
         ttk.Label(dialog, text="ФИО *", font=('Arial', 10)).grid(
             row=0, column=0, padx=10, pady=10, sticky='w'
         )
-        name_entry = ttk.Entry(dialog, width=40)
-        name_entry.grid(row=0, column=1, padx=10, pady=10)
+        
+        name_frame = ttk.Frame(dialog)
+        name_frame.grid(row=0, column=1, padx=10, pady=10, sticky='w')
+        
+        vcmd_name = (dialog.register(self.validate_letters_only), '%P')
+        name_entry = ttk.Entry(name_frame, width=40, validate='key', validatecommand=vcmd_name)
+        name_entry.pack(side='left')
         name_entry.focus()
         
-        ttk.Label(dialog, text="Дата рождения (ГГГГ-ММ-ДД)", font=('Arial', 10)).grid(
+        ttk.Label(name_frame, text="(только буквы)", foreground='gray', font=('Arial', 8)).pack(side='left', padx=5)
+        
+        # Дата рождения
+        ttk.Label(dialog, text="Дата рождения", font=('Arial', 10)).grid(
             row=1, column=0, padx=10, pady=10, sticky='w'
         )
-        birth_entry = ttk.Entry(dialog, width=40)
-        birth_entry.grid(row=1, column=1, padx=10, pady=10)
         
+        birth_frame = ttk.Frame(dialog)
+        birth_frame.grid(row=1, column=1, padx=10, pady=10, sticky='w')
+        
+        birth_entry = ttk.Entry(birth_frame, width=15)
+        birth_entry.pack(side='left')
+        
+        ttk.Button(
+            birth_frame,
+            text="📅",
+            width=3,
+            command=lambda: self.show_date_picker(
+                dialog, 
+                birth_entry,
+                max_date=datetime.now().date()
+            )
+        ).pack(side='left', padx=5)
+        
+        ttk.Label(birth_frame, text="ГГГГ-ММ-ДД", foreground='gray', font=('Arial', 8)).pack(side='left')
+        
+        # Телефон
         ttk.Label(dialog, text="Телефон", font=('Arial', 10)).grid(
             row=2, column=0, padx=10, pady=10, sticky='w'
         )
-        phone_entry = ttk.Entry(dialog, width=40)
-        phone_entry.grid(row=2, column=1, padx=10, pady=10)
         
+        phone_frame = ttk.Frame(dialog)
+        phone_frame.grid(row=2, column=1, padx=10, pady=10, sticky='w')
+        
+        vcmd_phone = (dialog.register(self.validate_phone_chars), '%P')
+        phone_entry = ttk.Entry(phone_frame, width=30, validate='key', validatecommand=vcmd_phone)
+        phone_entry.pack(side='left')
+        
+        ttk.Label(phone_frame, text="+7 (999) 123-45-67", foreground='gray', font=('Arial', 8)).pack(side='left', padx=5)
+        
+        # Номер полиса
         ttk.Label(dialog, text="Номер полиса *", font=('Arial', 10)).grid(
             row=3, column=0, padx=10, pady=10, sticky='w'
         )
-        policy_entry = ttk.Entry(dialog, width=40)
-        policy_entry.grid(row=3, column=1, padx=10, pady=10)
+        
+        policy_frame = ttk.Frame(dialog)
+        policy_frame.grid(row=3, column=1, padx=10, pady=10, sticky='w')
+        
+        vcmd_policy = (dialog.register(self.validate_digits_only), '%P')
+        policy_entry = ttk.Entry(
+            policy_frame, 
+            width=20,
+            validate='key', 
+            validatecommand=vcmd_policy
+        )
+        policy_entry.pack(side='left')
+        
+        policy_counter = ttk.Label(policy_frame, text="0/16", foreground='gray', font=('Arial', 8))
+        policy_counter.pack(side='left', padx=5)
+        
+        def update_policy_counter(*args):
+            length = len(policy_entry.get())
+            policy_counter.config(text=f"{length}/16")
+            if length == 16:
+                policy_counter.config(foreground='green')
+            else:
+                policy_counter.config(foreground='gray')
+        
+        policy_entry.bind('<KeyRelease>', update_policy_counter)
         
         if mode == "edit" and patient:
             name_entry.insert(0, patient['full_name'] or '')
@@ -584,6 +834,7 @@ class MainApplication:
             phone_entry.insert(0, patient['phone'] or '')
             policy_entry.insert(0, patient['policy_number'] or '')
             policy_entry.config(state='disabled')
+            update_policy_counter()
         
         security_label = ttk.Label(
             dialog, 
@@ -601,6 +852,11 @@ class MainApplication:
             birth = birth_entry.get().strip() or None
             phone = phone_entry.get().strip() or None
             policy = policy_entry.get().strip()
+            
+            # Дополнительная проверка длины полиса
+            if len(policy) != 16:
+                messagebox.showerror("Ошибка", "Номер полиса должен содержать ровно 16 цифр")
+                return
             
             if mode == "add":
                 patient_id = db.add_patient(name, birth, phone, policy)
@@ -636,6 +892,43 @@ class MainApplication:
             command=dialog.destroy, 
             width=15
         ).pack(side='left', padx=5)
+    
+    def show_date_picker(self, parent, entry, min_date=None, max_date=None):
+        """
+        Показывает календарь для выбора даты.
+        
+        Args:
+            parent: родительское окно
+            entry: поле ввода, куда вставить дату
+            min_date: минимальная дата
+            max_date: максимальная дата
+        """
+        def on_date_selected(date_str):
+            entry.delete(0, tk.END)
+            entry.insert(0, date_str)
+        
+        # Создаем окно для календаря
+        calendar_window = tk.Toplevel(parent)
+        calendar_window.title("Выберите дату")
+        calendar_window.geometry("300x300")
+        calendar_window.transient(parent)
+        calendar_window.grab_set()
+        
+        # Центрируем окно
+        calendar_window.update_idletasks()
+        x = parent.winfo_rootx() + (parent.winfo_width() - calendar_window.winfo_width()) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - calendar_window.winfo_height()) // 2
+        calendar_window.geometry(f"+{x}+{y}")
+        
+        # Создаем календарь
+        date_picker = DatePicker(
+            calendar_window,
+            initial_date=entry.get() or datetime.now().strftime('%Y-%m-%d'),
+            callback=on_date_selected,
+            min_date=min_date,
+            max_date=max_date
+        )
+        date_picker.frame.pack(fill='both', expand=True, padx=10, pady=10)
     
     # ============================================
     # ВКЛАДКА "ВРАЧИ"
@@ -774,22 +1067,30 @@ class MainApplication:
         self.load_doctors_to_combobox()
         
         # Выбор даты
-        ttk.Label(main_frame, text="Дата (ГГГГ-ММ-ДД):", font=('Arial', 11)).grid(
+        ttk.Label(main_frame, text="Дата приёма:", font=('Arial', 11)).grid(
             row=5, column=0, sticky='w', pady=5
         )
         
         date_frame = ttk.Frame(main_frame)
         date_frame.grid(row=5, column=1, sticky='w', pady=5)
         
-        vcmd_date = (self.root.register(self.validate_date_input), '%P')
-        self.date_entry = ttk.Entry(
-            date_frame, 
-            width=15,
-            validate='key',
-            validatecommand=vcmd_date
-        )
+        self.date_entry = ttk.Entry(date_frame, width=15)
         self.date_entry.pack(side='left', padx=2)
-        self.date_entry.insert(0, datetime.now().strftime('%Y-%m-%d'))
+        
+        # Устанавливаем сегодняшнюю дату
+        today = datetime.now().strftime('%Y-%m-%d')
+        self.date_entry.insert(0, today)
+        
+        ttk.Button(
+            date_frame, 
+            text="📅", 
+            width=3,
+            command=lambda: self.show_date_picker(
+                tab,
+                self.date_entry,
+                min_date=datetime.now().date()
+            )
+        ).pack(side='left', padx=2)
         
         ttk.Button(
             date_frame, 
@@ -842,17 +1143,6 @@ class MainApplication:
             font=('Arial', 9)
         )
         security_label.grid(row=10, column=0, columnspan=2, pady=5)
-    
-    def validate_date_input(self, value):
-        """Валидация ввода даты"""
-        if not value:
-            return True
-        if len(value) > 10:
-            return False
-        for char in value:
-            if not (char.isdigit() or char == '-'):
-                return False
-        return True
     
     def on_patient_select(self, event):
         """Обработчик выбора пациента"""
@@ -919,6 +1209,16 @@ class MainApplication:
         date = self.date_entry.get().strip()
         if not date:
             messagebox.showwarning("Предупреждение", "Введите дату")
+            return
+        
+        # Проверяем, что дата не в прошлом
+        try:
+            selected_date = datetime.strptime(date, '%Y-%m-%d').date()
+            if selected_date < datetime.now().date():
+                messagebox.showwarning("Предупреждение", "Нельзя выбрать дату в прошлом")
+                return
+        except ValueError:
+            messagebox.showerror("Ошибка", "Неверный формат даты")
             return
         
         try:
@@ -1181,7 +1481,7 @@ class MainApplication:
     def show_about(self):
         """Показывает информацию о программе"""
         about_text = """РЕГИСТРАТУРА ПОЛИКЛИНИКИ
-Версия 2.0 (Безопасная)
+Версия 2.1 (Безопасная)
 
 ЗАЩИТА ДАННЫХ:
 • Параметризованные SQL-запросы
@@ -1196,6 +1496,12 @@ class MainApplication:
 • Просмотр и отмена записей
 • Статистика и мониторинг
 • Журнал аудита
+
+НОВЫЕ ФУНКЦИИ:
+• Удобные календари для выбора дат
+• Ограничение на ввод только букв в ФИО
+• Номер полиса строго 16 цифр
+• Запрет выбора прошедших дат
 
 БЕЗОПАСНОСТЬ:
 • Защита от SQL-инъекций: 
@@ -1229,7 +1535,7 @@ if __name__ == "__main__":
     
     backup = db.backup_database()
     if backup:
-        print(f"✅ Создана резервная копия: {backup}")
+        print(f"Создана резервная копия: {backup}")
     
     root = tk.Tk()
     app = MainApplication(root)
