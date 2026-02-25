@@ -1,7 +1,6 @@
 """
 Модуль с графическим интерфейсом программы.
 Использует библиотеку tkinter.
-Добавлены календари для выбора дат и улучшенная валидация ввода.
 """
 
 import tkinter as tk
@@ -106,10 +105,7 @@ class DatePicker:
                     
                     # Проверяем, доступна ли дата
                     is_valid = self.min_date <= date <= self.max_date
-                    is_today = date == datetime.now().date()
                     
-                    # Стиль кнопки
-                    btn_style = 'Calendar.TButton'
                     btn = ttk.Button(
                         self.calendar_frame,
                         text=str(day),
@@ -200,6 +196,55 @@ class ValidationMixin:
         if not text:
             return True
         return all(c.isdigit() or c in '+ -()' for c in text)
+    
+    @staticmethod
+    def validate_doctor_name(text):
+        """
+        Проверяет, что ФИО врача содержит только буквы, пробелы, дефисы и точки.
+        
+        Args:
+            text (str): текст для проверки
+        
+        Returns:
+            bool: True если валидно
+        """
+        if not text:
+            return True
+        # Разрешены: буквы, пробелы, дефис, точка
+        return all(c.isalpha() or c.isspace() or c in '-.' for c in text)
+    
+    @staticmethod
+    def validate_specialty(text):
+        """
+        Проверяет, что специальность содержит только буквы, пробелы, дефисы.
+        (Цифры не разрешены)
+        
+        Args:
+            text (str): текст для проверки
+        
+        Returns:
+            bool: True если валидно
+        """
+        if not text:
+            return True
+        # Разрешены: буквы, пробелы, дефис
+        return all(c.isalpha() or c.isspace() or c == '-' for c in text)
+    
+    @staticmethod
+    def validate_room_number(text):
+        """
+        Проверяет, что номер кабинета содержит только цифры и буквы (для номеров типа 101А).
+        
+        Args:
+            text (str): текст для проверки
+        
+        Returns:
+            bool: True если валидно
+        """
+        if not text:
+            return True
+        # Разрешены: цифры и буквы (для номеров типа 101А, 12Б)
+        return all(c.isdigit() or c.isalpha() for c in text)
 
 class MainApplication(ValidationMixin):
     """
@@ -207,15 +252,17 @@ class MainApplication(ValidationMixin):
     Содержит все методы для создания интерфейса и обработки событий.
     """
     
-    def __init__(self, root):
+    def __init__(self, root, user_data):
         """
         Конструктор класса. Инициализирует главное окно и все компоненты.
         
         Args:
             root: главное окно tkinter
+            user_data: данные пользователя (логин, роль, имя)
         """
         self.root = root
-        self.root.title("Регистратура поликлиники")
+        self.user = user_data
+        self.root.title(f"Регистратура поликлиники - {self.user['name']} ({self.user['role']})")
         self.root.geometry("1200x700")
         
         self.center_window()
@@ -228,11 +275,16 @@ class MainApplication(ValidationMixin):
         
         self.create_patients_tab()
         self.create_doctors_tab()
+        
+        # Вкладка для управления врачами (только для админа)
+        if self.user['role'] == 'admin':
+            self.create_admin_doctors_tab()
+        
         self.create_new_appointment_tab()
         self.create_appointments_tab()
         self.create_stats_tab()
         
-        self.update_status("Программа готова к работе. Режим: безопасный")
+        self.update_status(f"Программа готова к работе. Пользователь: {self.user['name']}")
         
         self.after_id = self.root.after(1000, self.show_startup_info)
     
@@ -247,6 +299,7 @@ class MainApplication(ValidationMixin):
             f" - Врачей: {stats['doctors']}\n"
             f" - Записей: {stats['appointments']}\n"
             f" - Размер БД: {stats['size_kb']} КБ\n\n"
+            f"Пользователь: {self.user['name']} ({self.user['role']})\n"
             f"Меры безопасности активны:\n"
             f" - Защита от SQL-инъекций\n"
             f" - Валидация всех данных\n"
@@ -269,6 +322,7 @@ class MainApplication(ValidationMixin):
         style.configure('Header.TLabel', font=('Arial', 12, 'bold'))
         style.configure('Action.TButton', font=('Arial', 10), padding=5)
         style.configure('Warning.TButton', font=('Arial', 10), padding=5, foreground='red')
+        style.configure('Admin.TButton', font=('Arial', 10), padding=5, foreground='blue')
     
     def create_menu(self):
         """Создаёт главное меню программы"""
@@ -281,6 +335,7 @@ class MainApplication(ValidationMixin):
         file_menu.add_command(label="Очистить кэш БД", command=self.cleanup_database_cache)
         file_menu.add_command(label="Создать резервную копию", command=self.create_backup)
         file_menu.add_separator()
+        file_menu.add_command(label="Сменить пользователя", command=self.logout)
         file_menu.add_command(label="Выход", command=self.quit_application)
         
         security_menu = tk.Menu(menubar, tearoff=0)
@@ -293,6 +348,20 @@ class MainApplication(ValidationMixin):
         menubar.add_cascade(label="Справка", menu=help_menu)
         help_menu.add_command(label="О программе", command=self.show_about)
         help_menu.add_command(label="Руководство по безопасности", command=self.show_security_guide)
+    
+    def logout(self):
+        """Выход из учетной записи"""
+        if messagebox.askyesno("Подтверждение", "Выйти из системы?"):
+            self.root.destroy()
+            # Запускаем окно входа заново
+            import auth
+            login_dialog = auth.LoginDialog()
+            user_data = login_dialog.show()
+            
+            if user_data:
+                new_root = tk.Tk()
+                new_app = MainApplication(new_root, user_data)
+                new_root.mainloop()
     
     def quit_application(self):
         """Безопасное завершение приложения"""
@@ -370,6 +439,11 @@ class MainApplication(ValidationMixin):
 ║     СТАТИСТИКА БЕЗОПАСНОСТИ       ║
 ╚════════════════════════════════════╝
 
+ПОЛЬЗОВАТЕЛЬ:
+   • Имя: {self.user['name']}
+   • Роль: {self.user['role']}
+   • Логин: {self.user['login']}
+
 ДАННЫЕ:
    • Пациентов: {stats['patients']}
    • Врачей: {stats['doctors']}
@@ -381,15 +455,10 @@ class MainApplication(ValidationMixin):
    • Последний бэкап: {stats['last_backup'] or 'нет'}
 
 ЗАЩИТА:
-   • SQL-инъекции: Заблокированы
-   • Валидация данных: Активна
-   • Логирование: Включено
+   • SQL-инъекции: ✅ Заблокированы
+   • Валидация данных: ✅ Активна
+   • Логирование: ✅ Включено
    • Журнал аудита: {log_size} КБ
-
-ВНИМАНИЕ:
-   • Все действия записываются в audit.log
-   • Не удаляйте файлы .db и .log вручную
-   • Используйте меню "Безопасность" для проверок
 """
         messagebox.showinfo("Статистика безопасности", security_info)
     
@@ -418,11 +487,6 @@ class MainApplication(ValidationMixin):
 • Не удаляйте файл clinic.db вручную
 • Используйте функцию "Очистить кэш"
 • При ошибках создавайте бэкап
-
-РЕКОМЕНДАЦИИ:
-• Регулярно проверяйте целостность БД
-• Храните бэкапы в надежном месте
-• Ограничьте доступ к программе
 """
         messagebox.showinfo("Руководство по безопасности", guide)
     
@@ -430,7 +494,7 @@ class MainApplication(ValidationMixin):
         """Создаёт строку состояния внизу окна"""
         self.status_bar = ttk.Label(
             self.root, 
-            text=" Готово | Режим: безопасный", 
+            text=f" Пользователь: {self.user['name']} | Режим: безопасный", 
             relief='sunken', 
             anchor='w'
         )
@@ -445,7 +509,9 @@ class MainApplication(ValidationMixin):
         """
         if hasattr(self, 'status_bar'):
             current_time = datetime.now().strftime('%H:%M:%S')
-            self.status_bar.config(text=f" [{current_time}] {message} | Режим: безопасный")
+            self.status_bar.config(
+                text=f" [{current_time}] {message} | Пользователь: {self.user['name']} | Режим: безопасный"
+            )
             self.root.update()
     
     def refresh_all(self):
@@ -509,14 +575,22 @@ class MainApplication(ValidationMixin):
             self.stats_labels[key] = ttk.Label(main_frame, text="...", font=('Arial', 11, 'bold'))
             self.stats_labels[key].grid(row=i+1, column=1, sticky='w', pady=5, padx=20)
         
+        # Информация о пользователе
+        user_frame = ttk.LabelFrame(main_frame, text="Текущий пользователь", padding=10)
+        user_frame.grid(row=len(stats_items)+2, column=0, columnspan=2, pady=10, sticky='ew')
+        
+        ttk.Label(user_frame, text=f"Имя: {self.user['name']}", font=('Arial', 10)).pack(anchor='w')
+        ttk.Label(user_frame, text=f"Роль: {self.user['role']}", font=('Arial', 10)).pack(anchor='w')
+        ttk.Label(user_frame, text=f"Логин: {self.user['login']}", font=('Arial', 10)).pack(anchor='w')
+        
         ttk.Button(
             main_frame,
             text="Обновить статистику",
             command=self.load_stats
-        ).grid(row=len(stats_items)+2, column=0, columnspan=2, pady=20)
+        ).grid(row=len(stats_items)+3, column=0, columnspan=2, pady=20)
         
         security_frame = ttk.LabelFrame(main_frame, text="Состояние безопасности", padding=10)
-        security_frame.grid(row=len(stats_items)+3, column=0, columnspan=2, pady=10, sticky='ew')
+        security_frame.grid(row=len(stats_items)+4, column=0, columnspan=2, pady=10, sticky='ew')
         
         security_items = [
             ("Защита от SQL-инъекций", "green"),
@@ -931,13 +1005,13 @@ class MainApplication(ValidationMixin):
         date_picker.frame.pack(fill='both', expand=True, padx=10, pady=10)
     
     # ============================================
-    # ВКЛАДКА "ВРАЧИ"
+    # ВКЛАДКА "ВРАЧИ" (для всех)
     # ============================================
     
     def create_doctors_tab(self):
-        """Создаёт вкладку со списком врачей"""
+        """Создаёт вкладку со списком врачей (только просмотр)"""
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="Врачи")
+        self.notebook.add(tab, text="Врачи (просмотр)")
         
         columns = ('id', 'ФИО', 'Специальность', 'Кабинет')
         self.doctors_tree = ttk.Treeview(
@@ -968,7 +1042,7 @@ class MainApplication(ValidationMixin):
         
         info_label = ttk.Label(
             tab,
-            text="Список врачей доступен только для просмотра. Изменения через администратора.",
+            text="Список врачей доступен только для просмотра.",
             foreground='blue',
             font=('Arial', 9)
         )
@@ -1001,6 +1075,411 @@ class MainApplication(ValidationMixin):
                 self.doctor_combobox.current(0)
         except Exception as e:
             self.update_status(f"Ошибка загрузки врачей: {e}")
+    
+    # ============================================
+    # ВКЛАДКА "УПРАВЛЕНИЕ ВРАЧАМИ" (только для админа)
+    # ============================================
+    
+    def create_admin_doctors_tab(self):
+        """Создаёт вкладку управления врачами (только для админа)"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Управление врачами (админ)")
+        
+        top_frame = ttk.Frame(tab)
+        top_frame.pack(fill='x', padx=5, pady=5)
+        
+        ttk.Button(
+            top_frame,
+            text="Добавить врача",
+            command=self.open_add_doctor_dialog,
+            style='Admin.TButton'
+        ).pack(side='left', padx=2)
+        
+        ttk.Button(
+            top_frame,
+            text="Редактировать",
+            command=self.open_edit_doctor_dialog
+        ).pack(side='left', padx=2)
+        
+        ttk.Button(
+            top_frame,
+            text="Удалить",
+            command=self.delete_selected_doctor,
+            style='Warning.TButton'
+        ).pack(side='left', padx=2)
+        
+        ttk.Button(
+            top_frame,
+            text="Обновить",
+            command=self.load_admin_doctors
+        ).pack(side='left', padx=2)
+        
+        # Таблица врачей для админа
+        columns = ('id', 'ФИО', 'Специальность', 'Кабинет')
+        self.admin_doctors_tree = ttk.Treeview(
+            tab, 
+            columns=columns, 
+            show='headings', 
+            height=20
+        )
+        
+        for col in columns:
+            self.admin_doctors_tree.heading(col, text=col)
+        
+        widths = [50, 250, 150, 80]
+        for col, width in zip(columns, widths):
+            self.admin_doctors_tree.column(col, width=width)
+        
+        scrollbar = ttk.Scrollbar(
+            tab, 
+            orient='vertical', 
+            command=self.admin_doctors_tree.yview
+        )
+        self.admin_doctors_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.admin_doctors_tree.pack(side='left', fill='both', expand=True, padx=5, pady=5)
+        scrollbar.pack(side='right', fill='y', pady=5)
+        
+        self.load_admin_doctors()
+    
+    def load_admin_doctors(self):
+        """Загружает список врачей для админ-таблицы"""
+        try:
+            for row in self.admin_doctors_tree.get_children():
+                self.admin_doctors_tree.delete(row)
+            
+            doctors = db.get_all_doctors()
+            for doctor in doctors:
+                self.admin_doctors_tree.insert('', 'end', values=(
+                    doctor['id'],
+                    doctor['full_name'],
+                    doctor['specialty'] or '',
+                    doctor['room_number'] or ''
+                ))
+        except Exception as e:
+            self.update_status(f"Ошибка загрузки врачей: {e}")
+    
+    def open_add_doctor_dialog(self):
+        """Открывает диалог добавления врача"""
+        self.open_doctor_dialog(mode="add")
+    
+    def open_edit_doctor_dialog(self):
+        """Открывает диалог редактирования врача"""
+        selection = self.admin_doctors_tree.selection()
+        if not selection:
+            messagebox.showwarning("Предупреждение", "Выберите врача для редактирования")
+            return
+        
+        item = self.admin_doctors_tree.item(selection[0])
+        doctor_id = item['values'][0]
+        
+        doctor = db.get_doctor_by_id(doctor_id)
+        if doctor:
+            self.open_doctor_dialog(mode="edit", doctor=doctor)
+        else:
+            messagebox.showerror("Ошибка", "Врач не найден")
+    
+    def delete_selected_doctor(self):
+        """Удаляет выбранного врача"""
+        selection = self.admin_doctors_tree.selection()
+        if not selection:
+            messagebox.showwarning("Предупреждение", "Выберите врача для удаления")
+            return
+        
+        item = self.admin_doctors_tree.item(selection[0])
+        doctor_id = item['values'][0]
+        doctor_name = item['values'][1]
+        
+        if messagebox.askyesno("Подтверждение", 
+                              f"Удалить врача {doctor_name}?\n\n"
+                              "ВНИМАНИЕ:\n"
+                              "Будут удалены все записи к этому врачу!"):
+            
+            try:
+                # Проверяем, есть ли будущие записи у врача
+                with db.get_connection() as conn:
+                    cursor = conn.execute('''
+                        SELECT COUNT(*) as count FROM appointments 
+                        WHERE doctor_id = ? AND date >= date('now') AND status = 'запланирован'
+                    ''', (doctor_id,))
+                    result = cursor.fetchone()
+                    
+                    if result and result['count'] > 0:
+                        if not messagebox.askyesno("Подтверждение", 
+                                                 f"У врача есть {result['count']} будущих записей.\n"
+                                                 "Они также будут удалены.\n\n"
+                                                 "Продолжить?"):
+                            return
+                
+                # Удаляем врача
+                conn.execute("DELETE FROM doctors WHERE id = ?", (doctor_id,))
+                conn.commit()
+                
+                self.load_admin_doctors()
+                self.load_doctors()  # Обновляем обычную таблицу врачей
+                self.load_doctors_to_combobox()  # Обновляем выпадающий список
+                self.update_status(f"Врач {doctor_name} удалён")
+                messagebox.showinfo("Успех", "Врач удалён")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось удалить врача: {e}")
+                db.log_action("DELETE_DOCTOR_ERROR", f"Error deleting doctor {doctor_id}: {str(e)}")
+    
+    def open_doctor_dialog(self, mode="add", doctor=None):
+        """
+        Диалог для добавления/редактирования врача.
+        
+        Args:
+            mode (str): "add" или "edit"
+            doctor: данные врача (для edit)
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Редактирование врача" if mode == "edit" else "Добавление врача")
+        dialog.geometry("600x400")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Заголовок
+        ttk.Label(
+            dialog, 
+            text="Данные врача", 
+            font=('Arial', 12, 'bold')
+        ).grid(row=0, column=0, columnspan=3, pady=10)
+        
+        # ФИО
+        ttk.Label(dialog, text="ФИО *", font=('Arial', 10)).grid(
+            row=1, column=0, padx=10, pady=10, sticky='w'
+        )
+        
+        name_frame = ttk.Frame(dialog)
+        name_frame.grid(row=1, column=1, padx=10, pady=10, sticky='w')
+        
+        # Валидация для ФИО (только буквы)
+        vcmd_name = (dialog.register(self.validate_doctor_name), '%P')
+        name_entry = ttk.Entry(
+            name_frame, 
+            width=40, 
+            validate='key', 
+            validatecommand=vcmd_name
+        )
+        name_entry.pack(side='left')
+        name_entry.focus()
+        
+        ttk.Label(
+            name_frame, 
+            text="(только буквы)", 
+            foreground='gray', 
+            font=('Arial', 8)
+        ).pack(side='left', padx=5)
+        
+        # Специальность
+        ttk.Label(dialog, text="Специальность *", font=('Arial', 10)).grid(
+            row=2, column=0, padx=10, pady=10, sticky='w'
+        )
+        
+        specialty_frame = ttk.Frame(dialog)
+        specialty_frame.grid(row=2, column=1, padx=10, pady=10, sticky='w')
+        
+        # Валидация для специальности (только буквы)
+        vcmd_specialty = (dialog.register(self.validate_specialty), '%P')
+        specialty_entry = ttk.Entry(
+            specialty_frame, 
+            width=40, 
+            validate='key', 
+            validatecommand=vcmd_specialty
+        )
+        specialty_entry.pack(side='left')
+        
+        ttk.Label(
+            specialty_frame, 
+            text="(только буквы)", 
+            foreground='gray', 
+            font=('Arial', 8)
+        ).pack(side='left', padx=5)
+        
+        # Кабинет
+        ttk.Label(dialog, text="Кабинет", font=('Arial', 10)).grid(
+            row=3, column=0, padx=10, pady=10, sticky='w'
+        )
+        
+        room_frame = ttk.Frame(dialog)
+        room_frame.grid(row=3, column=1, padx=10, pady=10, sticky='w')
+        
+        # Валидация для кабинета (цифры и буквы)
+        vcmd_room = (dialog.register(self.validate_room_number), '%P')
+        room_entry = ttk.Entry(
+            room_frame, 
+            width=20, 
+            validate='key', 
+            validatecommand=vcmd_room
+        )
+        room_entry.pack(side='left')
+        
+        ttk.Label(
+            room_frame, 
+            text="(цифры и буквы, например: 101, 12А)", 
+            foreground='gray', 
+            font=('Arial', 8)
+        ).pack(side='left', padx=5)
+        
+        # Счетчик символов для ФИО
+        name_counter = ttk.Label(
+            dialog, 
+            text="0/100", 
+            foreground='gray', 
+            font=('Arial', 8)
+        )
+        name_counter.grid(row=1, column=2, padx=5, sticky='w')
+        
+        def update_name_counter(*args):
+            length = len(name_entry.get())
+            name_counter.config(text=f"{length}/100")
+            if length > 100:
+                name_counter.config(foreground='red')
+            elif length >= 2:
+                name_counter.config(foreground='green')
+            else:
+                name_counter.config(foreground='gray')
+        
+        name_entry.bind('<KeyRelease>', update_name_counter)
+        
+        # Счетчик символов для специальности
+        specialty_counter = ttk.Label(
+            dialog, 
+            text="0/50", 
+            foreground='gray', 
+            font=('Arial', 8)
+        )
+        specialty_counter.grid(row=2, column=2, padx=5, sticky='w')
+        
+        def update_specialty_counter(*args):
+            length = len(specialty_entry.get())
+            specialty_counter.config(text=f"{length}/50")
+            if length > 50:
+                specialty_counter.config(foreground='red')
+            elif length >= 2:
+                specialty_counter.config(foreground='green')
+            else:
+                specialty_counter.config(foreground='gray')
+        
+        specialty_entry.bind('<KeyRelease>', update_specialty_counter)
+        
+        # Если режим редактирования - заполняем поля
+        if mode == "edit" and doctor:
+            name_entry.insert(0, doctor['full_name'] or '')
+            specialty_entry.insert(0, doctor['specialty'] or '')
+            room_entry.insert(0, doctor['room_number'] or '')
+            update_name_counter()
+            update_specialty_counter()
+        
+        # Информация о безопасности
+        security_label = ttk.Label(
+            dialog, 
+            text="✓ Данные проверяются: буквы в ФИО и специальности, буквы/цифры в кабинете",
+            foreground='green',
+            font=('Arial', 9)
+        )
+        security_label.grid(row=4, column=0, columnspan=3, pady=10)
+        
+        # Кнопки
+        button_frame = ttk.Frame(dialog)
+        button_frame.grid(row=5, column=0, columnspan=3, pady=20)
+        
+        def save_doctor():
+            name = name_entry.get().strip()
+            specialty = specialty_entry.get().strip()
+            room = room_entry.get().strip()
+            
+            # Проверка обязательных полей
+            if not name:
+                messagebox.showerror("Ошибка", "ФИО обязательно для заполнения")
+                name_entry.focus()
+                return
+            
+            if not specialty:
+                messagebox.showerror("Ошибка", "Специальность обязательна для заполнения")
+                specialty_entry.focus()
+                return
+            
+            # Проверка минимальной длины
+            if len(name) < 2:
+                messagebox.showerror("Ошибка", "ФИО должно содержать минимум 2 символа")
+                name_entry.focus()
+                return
+            
+            if len(specialty) < 2:
+                messagebox.showerror("Ошибка", "Специальность должна содержать минимум 2 символа")
+                specialty_entry.focus()
+                return
+            
+            # Проверка максимальной длины
+            if len(name) > 100:
+                messagebox.showerror("Ошибка", "ФИО слишком длинное (максимум 100 символов)")
+                name_entry.focus()
+                return
+            
+            if len(specialty) > 50:
+                messagebox.showerror("Ошибка", "Специальность слишком длинная (максимум 50 символов)")
+                specialty_entry.focus()
+                return
+            
+            # Дополнительная проверка для кабинета (если указан)
+            if room and len(room) > 10:
+                messagebox.showerror("Ошибка", "Номер кабинета слишком длинный (максимум 10 символов)")
+                room_entry.focus()
+                return
+            
+            try:
+                if mode == "add":
+                    with db.get_connection() as conn:
+                        cursor = conn.execute('''
+                            INSERT INTO doctors (full_name, specialty, room_number)
+                            VALUES (?, ?, ?)
+                        ''', (name, specialty, room))
+                        conn.commit()
+                        doctor_id = cursor.lastrowid
+                    
+                    messagebox.showinfo("Успех", f"Врач добавлен (ID: {doctor_id})")
+                    db.log_action("ADD_DOCTOR", f"Added doctor ID:{doctor_id}, name:{name}")
+                else:
+                    with db.get_connection() as conn:
+                        conn.execute('''
+                            UPDATE doctors 
+                            SET full_name = ?, specialty = ?, room_number = ?
+                            WHERE id = ?
+                        ''', (name, specialty, room, doctor['id']))
+                        conn.commit()
+                    
+                    messagebox.showinfo("Успех", "Данные врача обновлены")
+                    db.log_action("UPDATE_DOCTOR", f"Updated doctor ID:{doctor['id']}")
+                
+                # Обновляем все таблицы с врачами
+                self.load_admin_doctors()
+                self.load_doctors()
+                self.load_doctors_to_combobox()
+                dialog.destroy()
+                self.update_status(f"Врач {name} сохранён")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось сохранить врача: {e}")
+                db.log_action("DOCTOR_ERROR", f"Error saving doctor: {str(e)}")
+        
+        ttk.Button(
+            button_frame, 
+            text="Сохранить", 
+            command=save_doctor, 
+            width=15
+        ).pack(side='left', padx=5)
+        
+        ttk.Button(
+            button_frame, 
+            text="Отмена", 
+            command=dialog.destroy, 
+            width=15
+        ).pack(side='left', padx=5)
     
     # ============================================
     # ВКЛАДКА "НОВАЯ ЗАПИСЬ"
@@ -1283,7 +1762,7 @@ class MainApplication(ValidationMixin):
             self.clear_appointment_form()
             self.load_appointments()
             self.load_stats()
-            self.notebook.select(3)
+            self.notebook.select(4)  # Переключаемся на вкладку "Все записи"
             self.update_status("Создана новая запись")
         else:
             messagebox.showerror("Ошибка", 
@@ -1480,8 +1959,13 @@ class MainApplication(ValidationMixin):
     
     def show_about(self):
         """Показывает информацию о программе"""
-        about_text = """РЕГИСТРАТУРА ПОЛИКЛИНИКИ
-Версия 2.1 (Безопасная)
+        about_text = f"""РЕГИСТРАТУРА ПОЛИКЛИНИКИ
+Версия 2.3 (Безопасная)
+
+ТЕКУЩИЙ ПОЛЬЗОВАТЕЛЬ:
+• Имя: {self.user['name']}
+• Роль: {self.user['role']}
+• Логин: {self.user['login']}
 
 ЗАЩИТА ДАННЫХ:
 • Параметризованные SQL-запросы
@@ -1489,25 +1973,6 @@ class MainApplication(ValidationMixin):
 • Логирование действий (audit.log)
 • Автоматическое резервирование
 • Проверка целостности БД
-
-ФУНКЦИОНАЛ:
-• Ведение базы пациентов
-• Запись на приём к врачам
-• Просмотр и отмена записей
-• Статистика и мониторинг
-• Журнал аудита
-
-НОВЫЕ ФУНКЦИИ:
-• Удобные календари для выбора дат
-• Ограничение на ввод только букв в ФИО
-• Номер полиса строго 16 цифр
-• Запрет выбора прошедших дат
-
-БЕЗОПАСНОСТЬ:
-• Защита от SQL-инъекций: 
-• Валидация данных: 
-• Аудит действий: 
-• Резервное копирование: 
 
 Чухарев Сергей Михайлович
 Разработано для курсовой работы
@@ -1517,33 +1982,22 @@ class MainApplication(ValidationMixin):
 
 
 # ============================================
-# ТОЧКА ВХОДА
+# ТОЧКА ВХОДА (для тестирования)
 # ============================================
 
 if __name__ == "__main__":
+    # Этот код выполняется только при прямом запуске gui.py
     print("=" * 60)
-    print("ЗАПУСК РЕГИСТРАТУРЫ ПОЛИКЛИНИКИ (БЕЗОПАСНЫЙ РЕЖИМ)")
+    print("ЗАПУСК РЕГИСТРАТУРЫ ПОЛИКЛИНИКИ (РЕЖИМ ТЕСТИРОВАНИЯ)")
     print("=" * 60)
     
-    if not db.verify_database_integrity():
-        print("База данных повреждена! Будет создана новая.")
-        if os.path.exists('clinic.db'):
-            backup_name = f"clinic.db.corrupted.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            os.rename('clinic.db', backup_name)
-    
-    db.init_db()
-    
-    backup = db.backup_database()
-    if backup:
-        print(f"Создана резервная копия: {backup}")
+    # Для тестирования создаем тестового пользователя
+    test_user = {
+        'login': 'admin',
+        'role': 'admin',
+        'name': 'Администратор'
+    }
     
     root = tk.Tk()
-    app = MainApplication(root)
-    
-    print("Программа запущена в безопасном режиме")
-    print("Журнал аудита: audit.log")
-    print("=" * 60)
-    
+    app = MainApplication(root, test_user)
     root.mainloop()
-    
-    print("Программа завершена")
