@@ -18,6 +18,7 @@ from gui.gui_doctors import DoctorsTabMixin
 from gui.gui_appointments import AppointmentsTabMixin
 from gui.gui_stats import StatsTabMixin
 from gui.gui_datepicker import DatePicker
+from database.config import DATA_DIR
 
 class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin, 
                       DoctorsTabMixin, AppointmentsTabMixin, StatsTabMixin):
@@ -108,11 +109,13 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
     
     def cleanup_python_cache(self):
         """
-        Очищает кэш Python (__pycache__ и .pyc файлы) в GUI.
+        Очищает кэш Python (__pycache__ и .pyc файлы) в GUI,
+        защищая папку data от удаления.
         """
         if messagebox.askyesno("Подтверждение", 
                               "Очистить кэш Python?\n\n"
-                              "Это удалит все папки __pycache__ и файлы .pyc.\n"
+                              "Это удалит все папки __pycache__ и файлы .pyc\n"
+                              "в папках проекта (кроме папки data).\n"
                               "Операция безопасна и может ускорить работу программы.\n\n"
                               "ВНИМАНИЕ: Программа будет перезапущена!"):
             
@@ -121,21 +124,44 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
                 deleted_dirs = 0
                 deleted_files = 0
                 
-                # Удаляем __pycache__ папки
+                # Папки, которые нужно исключить из очистки
+                excluded_dirs = {'data'}
+                
+                # Удаляем __pycache__ папки (кроме тех, что внутри data)
                 for pycache_dir in current_dir.rglob("__pycache__"):
                     if pycache_dir.is_dir():
-                        shutil.rmtree(pycache_dir)
-                        deleted_dirs += 1
+                        # Проверяем, не находится ли папка внутри data
+                        should_skip = False
+                        for parent in pycache_dir.parents:
+                            if parent.name in excluded_dirs or parent == DATA_DIR:
+                                should_skip = True
+                                break
+                        
+                        # Также проверяем прямой путь
+                        if DATA_DIR in pycache_dir.parents:
+                            should_skip = True
+                        
+                        if not should_skip:
+                            shutil.rmtree(pycache_dir)
+                            deleted_dirs += 1
                 
-                # Удаляем .pyc файлы
+                # Удаляем .pyc файлы (кроме тех, что внутри data)
                 for pyc_file in current_dir.rglob("*.pyc"):
-                    pyc_file.unlink()
-                    deleted_files += 1
+                    should_skip = False
+                    for parent in pyc_file.parents:
+                        if parent.name in excluded_dirs or parent == DATA_DIR:
+                            should_skip = True
+                            break
+                    
+                    if not should_skip:
+                        pyc_file.unlink()
+                        deleted_files += 1
                 
                 messagebox.showinfo("Успех", 
                                    f"Очистка завершена!\n\n"
                                    f"Удалено папок __pycache__: {deleted_dirs}\n"
                                    f"Удалено файлов .pyc: {deleted_files}\n\n"
+                                   "Папка data не была затронута.\n"
                                    "Программа будет перезапущена.")
                 
                 # Перезапускаем программу

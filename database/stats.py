@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 
 from database.connection import get_connection
-from database.config import DB_NAME, BACKUP_DIR
+from database.config import DB_PATH, BACKUP_DIR_PATH
 
 def get_database_stats():
     """
@@ -45,12 +45,11 @@ def get_database_stats():
                 (today,)
             ).fetchone()['count']
         
-        if os.path.exists(DB_NAME):
-            stats['size_kb'] = os.path.getsize(DB_NAME) // 1024
+        if os.path.exists(DB_PATH):
+            stats['size_kb'] = os.path.getsize(DB_PATH) // 1024
         
-        backup_dir = Path(BACKUP_DIR)
-        if backup_dir.exists():
-            backups = sorted(backup_dir.glob("clinic_backup_*.db"))
+        if BACKUP_DIR_PATH.exists():
+            backups = sorted(BACKUP_DIR_PATH.glob("clinic_backup_*.db"))
             if backups:
                 stats['last_backup'] = backups[-1].name
         

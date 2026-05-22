@@ -15,6 +15,7 @@ from database.appointments import (
     get_appointments_by_date, cancel_appointment, delete_old_appointments
 )
 from database.stats import get_database_stats
+from database.config import DATA_DIR, DB_PATH, AUDIT_LOG_PATH, BACKUP_DIR_PATH, ensure_data_dir
 
 __all__ = [
     # Connection
@@ -30,5 +31,7 @@ __all__ = [
     'get_free_time', 'add_appointment', 'get_all_appointments',
     'get_appointments_by_date', 'cancel_appointment', 'delete_old_appointments',
     # Stats
-    'get_database_stats'
+    'get_database_stats',
+    # Config
+    'DATA_DIR', 'DB_PATH', 'AUDIT_LOG_PATH', 'BACKUP_DIR_PATH', 'ensure_data_dir'
 ]
