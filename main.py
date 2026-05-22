@@ -9,12 +9,10 @@ import os
 import sqlite3
 from datetime import datetime
 
-# Добавляем текущую папку в путь поиска модулей
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Импортируем модули
 import tkinter as tk
-import database as db
+import database as db  # <-- ИСПРАВЛЕНО: импортируем как db
 import auth
 
 def setup_environment():
@@ -104,7 +102,7 @@ def main():
         print("База данных будет создана заново")
     
     print("\nИнициализация базы данных...")
-    db.init_db()
+    db.init_db()  # <-- ТЕПЕРЬ РАБОТАЕТ, так как db импортирован
     
     # Показываем окно входа
     print("\nЗапуск окна входа в систему...")
