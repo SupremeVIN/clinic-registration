@@ -6,20 +6,88 @@
 
 import sys
 import os
+import shutil
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import tkinter as tk
-import database as db  # <-- ИСПРАВЛЕНО: импортируем как db
+import database as db
 import auth
+
+def cleanup_pycache():
+    """
+    Удаляет все директории __pycache__ во всех подпапках проекта.
+    """
+    print("Очистка кэша Python (__pycache__)...")
+    
+    deleted_count = 0
+    deleted_size = 0
+    
+    # Текущая директория (корень проекта)
+    current_dir = Path(__file__).parent
+    
+    # Рекурсивно ищем все папки __pycache__
+    for pycache_dir in current_dir.rglob("__pycache__"):
+        if pycache_dir.is_dir():
+            try:
+                # Подсчитываем размер директории перед удалением
+                dir_size = sum(f.stat().st_size for f in pycache_dir.rglob('*') if f.is_file())
+                deleted_size += dir_size
+                
+                # Удаляем директорию
+                shutil.rmtree(pycache_dir)
+                deleted_count += 1
+                print(f"  Удалено: {pycache_dir} ({dir_size // 1024} КБ)")
+            except Exception as e:
+                print(f"  Ошибка при удалении {pycache_dir}: {e}")
+    
+    if deleted_count > 0:
+        print(f"  Очистка завершена: удалено {deleted_count} пап(ок/ки), освобождено {deleted_size // 1024} КБ")
+    else:
+        print("  Папки __pycache__ не найдены")
+    
+    print()
+
+def cleanup_pyc_files():
+    """
+    Удаляет все файлы .pyc в проекте.
+    """
+    print("Очистка файлов .pyc...")
+    
+    deleted_count = 0
+    deleted_size = 0
+    
+    current_dir = Path(__file__).parent
+    
+    # Рекурсивно ищем все файлы .pyc
+    for pyc_file in current_dir.rglob("*.pyc"):
+        try:
+            file_size = pyc_file.stat().st_size
+            deleted_size += file_size
+            pyc_file.unlink()
+            deleted_count += 1
+        except Exception as e:
+            print(f"  Ошибка при удалении {pyc_file}: {e}")
+    
+    if deleted_count > 0:
+        print(f"  Очистка завершена: удалено {deleted_count} файлов, освобождено {deleted_size // 1024} КБ")
+    else:
+        print("  Файлы .pyc не найдены")
+    
+    print()
 
 def setup_environment():
     """
     Настройка безопасного окружения перед запуском.
     """
     print("Настройка безопасного окружения...")
+    
+    # Очищаем кэш Python
+    cleanup_pycache()
+    cleanup_pyc_files()
     
     # Создаём необходимые папки
     os.makedirs("backups", exist_ok=True)
@@ -36,6 +104,7 @@ def setup_environment():
                     print(f"   Не удалось изменить права")
     
     print("Окружение настроено")
+    print()
 
 def check_database():
     """
@@ -78,10 +147,9 @@ def print_banner():
 ║     • Логирование действий (audit.log)                     ║
 ║     • Автоматическое резервирование                        ║
 ║                                                            ║
-║       Новые функции:                                       ║
-║     • Система входа (пользователь/администратор)           ║
-║     • Управление врачами для администратора                ║
-║     • Удобные календари для выбора дат                     ║
+║       Дополнительно:                                       ║
+║     • Автоматическая очистка __pycache__ при запуске       ║
+║     • Оптимизация производительности                       ║
 ╚════════════════════════════════════════════════════════════╝
 """
     print(banner)
@@ -102,7 +170,7 @@ def main():
         print("База данных будет создана заново")
     
     print("\nИнициализация базы данных...")
-    db.init_db()  # <-- ТЕПЕРЬ РАБОТАЕТ, так как db импортирован
+    db.init_db()
     
     # Показываем окно входа
     print("\nЗапуск окна входа в систему...")

@@ -7,6 +7,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 import os
+import shutil
+from pathlib import Path
 
 # Импортируем все миксины
 from gui.gui_validation import ValidationMixin
@@ -86,6 +88,8 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         menubar.add_cascade(label="Файл", menu=file_menu)
         file_menu.add_command(label="Обновить всё", command=self.refresh_all)
         file_menu.add_command(label="Очистить кэш БД", command=self.cleanup_database_cache)
+        file_menu.add_command(label="Очистить кэш Python", command=self.cleanup_python_cache)
+        file_menu.add_separator()
         file_menu.add_command(label="Создать резервную копию", command=self.create_backup)
         file_menu.add_separator()
         file_menu.add_command(label="Сменить пользователя", command=self.logout)
@@ -101,6 +105,50 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         menubar.add_cascade(label="Справка", menu=help_menu)
         help_menu.add_command(label="О программе", command=self.show_about)
         help_menu.add_command(label="Руководство по безопасности", command=self.show_security_guide)
+    
+    def cleanup_python_cache(self):
+        """
+        Очищает кэш Python (__pycache__ и .pyc файлы) в GUI.
+        """
+        if messagebox.askyesno("Подтверждение", 
+                              "Очистить кэш Python?\n\n"
+                              "Это удалит все папки __pycache__ и файлы .pyc.\n"
+                              "Операция безопасна и может ускорить работу программы.\n\n"
+                              "ВНИМАНИЕ: Программа будет перезапущена!"):
+            
+            try:
+                current_dir = Path(__file__).parent.parent
+                deleted_dirs = 0
+                deleted_files = 0
+                
+                # Удаляем __pycache__ папки
+                for pycache_dir in current_dir.rglob("__pycache__"):
+                    if pycache_dir.is_dir():
+                        shutil.rmtree(pycache_dir)
+                        deleted_dirs += 1
+                
+                # Удаляем .pyc файлы
+                for pyc_file in current_dir.rglob("*.pyc"):
+                    pyc_file.unlink()
+                    deleted_files += 1
+                
+                messagebox.showinfo("Успех", 
+                                   f"Очистка завершена!\n\n"
+                                   f"Удалено папок __pycache__: {deleted_dirs}\n"
+                                   f"Удалено файлов .pyc: {deleted_files}\n\n"
+                                   "Программа будет перезапущена.")
+                
+                # Перезапускаем программу
+                self.root.quit()
+                self.root.destroy()
+                
+                # Запускаем заново
+                import subprocess
+                import sys
+                subprocess.Popen([sys.executable, "main.py"])
+                
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось очистить кэш: {e}")
     
     def logout(self):
         """Выход из учетной записи"""
