@@ -59,7 +59,7 @@ def check_database():
         print("Файл базы данных корректен")
         return True
     except sqlite3.DatabaseError as e:
-        print(f"❌ Файл {db_file} повреждён: {e}")
+        print(f"Файл {db_file} повреждён: {e}")
         
         if os.path.exists(db_file):
             backup_name = f"clinic.db.corrupted.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -72,7 +72,7 @@ def print_banner():
     """Выводит красивый баннер при запуске"""
     banner = """
 ╔════════════════════════════════════════════════════════════╗
-║     РЕГИСТРАТУРА ПОЛИКЛИНИКИ v2.0 (БЕЗОПАСНЫЙ РЕЖИМ)       ║
+║     РЕГИСТРАТУРА ПОЛИКЛИНИКИ v2.3 (БЕЗОПАСНЫЙ РЕЖИМ)       ║
 ╠════════════════════════════════════════════════════════════╣
 ║       Защита:                                              ║
 ║     • Параметризованные SQL-запросы                        ║
@@ -118,8 +118,8 @@ def main():
         
         root = tk.Tk()
         
-        # Импортируем здесь, чтобы избежать циклических зависимостей
-        from gui import MainApplication
+        # Импортируем основной класс приложения из нового модуля
+        from gui.gui_main import MainApplication
         
         app = MainApplication(root, user_data)
         

@@ -349,7 +349,7 @@ def init_db():
             
     except sqlite3.DatabaseError as e:
         log_action("INIT_ERROR", f"Database initialization error: {str(e)}")
-        print(f"❌ Ошибка базы данных: {e}")
+        print(f"Ошибка базы данных: {e}")
 
 # ============================================
 # ФУНКЦИИ ДЛЯ РАБОТЫ С ПАЦИЕНТАМИ
