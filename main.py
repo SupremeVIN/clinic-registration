@@ -16,43 +16,28 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import tkinter as tk
 import database as db
 import auth
-from database.config import DATA_DIR, DB_PATH, AUDIT_LOG_PATH, BACKUP_DIR_PATH, ensure_data_dir
 
 def cleanup_pycache():
     """
-    Удаляет все директории __pycache__ во всех подпапках проекта,
-    кроме папки data (чтобы не нарушать работу базы данных).
+    Удаляет все директории __pycache__ во всех подпапках проекта.
     """
     print("Очистка кэша Python (__pycache__)...")
     
     deleted_count = 0
     deleted_size = 0
     
+    # Текущая директория (корень проекта)
     current_dir = Path(__file__).parent
     
-    # Папки, которые нужно исключить из очистки
-    excluded_dirs = {'data', '__pycache__'}
-    
+    # Рекурсивно ищем все папки __pycache__
     for pycache_dir in current_dir.rglob("__pycache__"):
         if pycache_dir.is_dir():
-            # Проверяем, не находится ли папка внутри data или другой защищённой директории
-            should_skip = False
-            for parent in pycache_dir.parents:
-                if parent.name in excluded_dirs:
-                    should_skip = True
-                    break
-            
-            # Также проверяем, не является ли папка частью data
-            if DATA_DIR in pycache_dir.parents or pycache_dir == DATA_DIR / "__pycache__":
-                should_skip = True
-            
-            if should_skip:
-                print(f"  Пропущено (защищённая папка): {pycache_dir}")
-                continue
-            
             try:
+                # Подсчитываем размер директории перед удалением
                 dir_size = sum(f.stat().st_size for f in pycache_dir.rglob('*') if f.is_file())
                 deleted_size += dir_size
+                
+                # Удаляем директорию
                 shutil.rmtree(pycache_dir)
                 deleted_count += 1
                 print(f"  Удалено: {pycache_dir} ({dir_size // 1024} КБ)")
@@ -62,13 +47,13 @@ def cleanup_pycache():
     if deleted_count > 0:
         print(f"  Очистка завершена: удалено {deleted_count} пап(ок/ки), освобождено {deleted_size // 1024} КБ")
     else:
-        print("  Папки __pycache__ не найдены вне защищённых директорий")
+        print("  Папки __pycache__ не найдены")
     
     print()
 
 def cleanup_pyc_files():
     """
-    Удаляет все файлы .pyc в проекте, кроме папки data.
+    Удаляет все файлы .pyc в проекте.
     """
     print("Очистка файлов .pyc...")
     
@@ -77,20 +62,8 @@ def cleanup_pyc_files():
     
     current_dir = Path(__file__).parent
     
-    # Папки, которые нужно исключить из очистки
-    excluded_dirs = {'data'}
-    
+    # Рекурсивно ищем все файлы .pyc
     for pyc_file in current_dir.rglob("*.pyc"):
-        # Проверяем, не находится ли файл внутри data
-        should_skip = False
-        for parent in pyc_file.parents:
-            if parent.name in excluded_dirs or parent == DATA_DIR:
-                should_skip = True
-                break
-        
-        if should_skip:
-            continue
-        
         try:
             file_size = pyc_file.stat().st_size
             deleted_size += file_size
@@ -102,7 +75,7 @@ def cleanup_pyc_files():
     if deleted_count > 0:
         print(f"  Очистка завершена: удалено {deleted_count} файлов, освобождено {deleted_size // 1024} КБ")
     else:
-        print("  Файлы .pyc не найдены вне защищённых директорий")
+        print("  Файлы .pyc не найдены")
     
     print()
 
@@ -112,17 +85,20 @@ def setup_environment():
     """
     print("Настройка безопасного окружения...")
     
-    ensure_data_dir()
-    
+    # Очищаем кэш Python
     cleanup_pycache()
     cleanup_pyc_files()
     
-    for filepath in [DB_PATH, AUDIT_LOG_PATH]:
-        if os.path.exists(filepath):
-            if not os.access(filepath, os.W_OK):
-                print(f"Файл {filepath} защищён от записи!")
+    # Создаём необходимые папки
+    os.makedirs("backups", exist_ok=True)
+    
+    # Проверяем права доступа к файлам
+    for filename in ['clinic.db', 'audit.log']:
+        if os.path.exists(filename):
+            if not os.access(filename, os.W_OK):
+                print(f"Файл {filename} защищён от записи!")
                 try:
-                    os.chmod(filepath, 0o666)
+                    os.chmod(filename, 0o666)
                     print(f"   Права восстановлены")
                 except:
                     print(f"   Не удалось изменить права")
@@ -137,29 +113,31 @@ def check_database():
     Returns:
         bool: True если БД в порядке
     """
-    if not os.path.exists(DB_PATH):
+    db_file = 'clinic.db'
+    
+    if not os.path.exists(db_file):
         print("Файл базы данных будет создан")
         return True
     
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(db_file)
         conn.execute("SELECT 1")
         conn.close()
         print("Файл базы данных корректен")
         return True
     except sqlite3.DatabaseError as e:
-        print(f"Файл {DB_PATH} повреждён: {e}")
+        print(f"Файл {db_file} повреждён: {e}")
         
-        if os.path.exists(DB_PATH):
-            backup_name = DATA_DIR / f"clinic.db.corrupted.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            os.rename(DB_PATH, backup_name)
+        if os.path.exists(db_file):
+            backup_name = f"clinic.db.corrupted.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            os.rename(db_file, backup_name)
             print(f"Создан бэкап повреждённого файла: {backup_name}")
         
         return False
 
 def print_banner():
     """Выводит красивый баннер при запуске"""
-    banner = f"""
+    banner = """
 ╔════════════════════════════════════════════════════════════╗
 ║     РЕГИСТРАТУРА ПОЛИКЛИНИКИ v2.3 (БЕЗОПАСНЫЙ РЕЖИМ)       ║
 ╠════════════════════════════════════════════════════════════╣
@@ -171,12 +149,10 @@ def print_banner():
 ║                                                            ║
 ║       Дополнительно:                                       ║
 ║     • Автоматическая очистка __pycache__ при запуске       ║
-║     • Защита папки data от очистки                         ║
-║     • Все данные хранятся в папке: data/                   ║
+║     • Оптимизация производительности                       ║
 ╚════════════════════════════════════════════════════════════╝
 """
     print(banner)
-    print(f"\nДиректория данных: {DATA_DIR}")
     print("\nТЕСТОВЫЕ УЧЕТНЫЕ ЗАПИСИ:")
     print("  • Регистратор: логин: user, пароль: user123")
     print("  • Администратор: логин: admin, пароль: admin123")
@@ -196,6 +172,7 @@ def main():
     print("\nИнициализация базы данных...")
     db.init_db()
     
+    # Показываем окно входа
     print("\nЗапуск окна входа в систему...")
     login_dialog = auth.LoginDialog()
     user_data = login_dialog.show()
@@ -206,11 +183,15 @@ def main():
         print("-" * 60)
         
         root = tk.Tk()
+        
+        # Импортируем основной класс приложения из нового модуля
         from gui.gui_main import MainApplication
+        
         app = MainApplication(root, user_data)
         
         print(f"Программа запущена в безопасном режиме")
-        print(f"Журнал аудита: {AUDIT_LOG_PATH}")
+        print(f"Пользователь: {user_data['name']}")
+        print("Журнал аудита: audit.log")
         print("=" * 60)
         
         root.mainloop()

@@ -6,7 +6,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import os
 from datetime import datetime
-from database.config import AUDIT_LOG_PATH
 
 class DialogsMixin:
     """
@@ -38,9 +37,8 @@ class DialogsMixin:
     
     def show_audit_log(self):
         """Показывает журнал аудита"""
-        from database.config import AUDIT_LOG_PATH
-        
-        if not os.path.exists(AUDIT_LOG_PATH):
+        log_file = 'audit.log'
+        if not os.path.exists(log_file):
             messagebox.showinfo("Журнал аудита", "Журнал аудита пуст")
             return
         
@@ -60,7 +58,7 @@ class DialogsMixin:
         scrollbar.config(command=text_widget.yview)
         
         try:
-            with open(AUDIT_LOG_PATH, 'r', encoding='utf-8') as f:
+            with open(log_file, 'r', encoding='utf-8') as f:
                 content = f.read()
                 text_widget.insert('1.0', content)
             text_widget.config(state='disabled')
@@ -74,13 +72,12 @@ class DialogsMixin:
         stats = db.get_database_stats()
         
         log_size = 0
-        from database.config import AUDIT_LOG_PATH
-        if os.path.exists(AUDIT_LOG_PATH):
-            log_size = os.path.getsize(AUDIT_LOG_PATH) // 1024
+        if os.path.exists('audit.log'):
+            log_size = os.path.getsize('audit.log') // 1024
         
         security_info = f"""
 ╔════════════════════════════════════╗
-║     СТАТИСТИКА БЕЗОПАСНОСТИ        ║
+║     СТАТИСТИКА БЕЗОПАСНОСТИ       ║
 ╚════════════════════════════════════╝
 
 ПОЛЬЗОВАТЕЛЬ:
@@ -120,15 +117,15 @@ class DialogsMixin:
 РЕЗЕРВНОЕ КОПИРОВАНИЕ:
 • Автоматически при запуске
 • Вручную через меню "Файл"
-• Хранятся в папке data/backups
+• Хранятся в папке /backups
 
 АУДИТ:
 • Все действия логируются
-• Лог хранится в data/audit.log
+• Лог хранится в audit.log
 • Не редактируйте лог вручную
 
 ВАЖНО:
-• Не удаляйте файл data/clinic.db вручную
+• Не удаляйте файл clinic.db вручную
 • Используйте функцию "Очистить кэш"
 • При ошибках создавайте бэкап
 """

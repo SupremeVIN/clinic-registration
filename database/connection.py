@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from datetime import datetime
 
-from database.config import DB_NAME, BACKUP_DIR, DB_PATH, DATA_DIR, BACKUP_DIR_PATH, ensure_data_dir
+from database.config import DB_NAME, BACKUP_DIR, DB_PATH
 from database.security import log_action
 
 def get_connection():
@@ -17,9 +17,7 @@ def get_connection():
     Returns:
         connection: объект соединения с SQLite
     """
-    ensure_data_dir()
-    
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_NAME)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA journal_mode = WAL")
@@ -34,13 +32,11 @@ def verify_database_integrity():
     Returns:
         bool: True если БД цела, False если повреждена
     """
-    ensure_data_dir()
-    
-    if not os.path.exists(DB_PATH):
+    if not os.path.exists(DB_NAME):
         return True
     
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_NAME) as conn:
             cursor = conn.execute("PRAGMA integrity_check")
             result = cursor.fetchone()
             if result and result[0] != "ok":
@@ -68,17 +64,17 @@ def backup_database():
     Returns:
         str: путь к файлу бэкапа или None
     """
-    ensure_data_dir()
-    
     try:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = BACKUP_DIR_PATH / f"clinic_backup_{timestamp}.db"
+        Path(BACKUP_DIR).mkdir(exist_ok=True)
         
-        if os.path.exists(DB_PATH):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = f"{BACKUP_DIR}/clinic_backup_{timestamp}.db"
+        
+        if os.path.exists(DB_NAME):
             import shutil
-            shutil.copy2(DB_PATH, str(backup_file))
+            shutil.copy2(DB_NAME, backup_file)
             log_action("BACKUP", f"Created backup: {backup_file}")
-            return str(backup_file)
+            return backup_file
     except Exception as e:
         log_action("BACKUP_ERROR", f"Failed to create backup: {str(e)}")
     
@@ -108,21 +104,18 @@ def init_db():
     """
     Инициализирует базу данных.
     """
-    ensure_data_dir()
-    
     print("Инициализация базы данных...")
-    print(f"  Директория данных: {DATA_DIR}")
     
-    if os.path.exists(DB_PATH):
+    if os.path.exists(DB_NAME):
         if not verify_database_integrity():
             print("  База данных повреждена!")
             backup_database()
-            os.remove(DB_PATH)
+            os.remove(DB_NAME)
             print("  Повреждённый файл удалён")
         else:
             backup_database()
     
-    db_exists = os.path.exists(DB_PATH)
+    db_exists = os.path.exists(DB_NAME)
     
     try:
         with get_connection() as conn:
