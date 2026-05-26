@@ -5,11 +5,14 @@
 import re
 import hashlib
 import logging
-from database.config import AUDIT_LOG, SALT
+from database.config import AUDIT_LOG_PATH, SALT, ensure_data_dir
+
+# Создаём директорию для данных перед настройкой логирования
+ensure_data_dir()
 
 # Настройка логирования
 logging.basicConfig(
-    filename=AUDIT_LOG,
+    filename=AUDIT_LOG_PATH,
     level=logging.INFO,
     format='%(asctime)s | %(levelname)s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
