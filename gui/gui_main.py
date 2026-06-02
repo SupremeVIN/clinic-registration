@@ -241,11 +241,11 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         def on_date_selected(date_str):
             entry.delete(0, tk.END)
             entry.insert(0, date_str)
-        
+            # Календарь закроется автоматически через DatePicker
         # Создаем окно для календаря
         calendar_window = tk.Toplevel(parent)
         calendar_window.title("Выберите дату")
-        calendar_window.geometry("300x300")
+        calendar_window.geometry("300x350")
         calendar_window.transient(parent)
         calendar_window.grab_set()
         

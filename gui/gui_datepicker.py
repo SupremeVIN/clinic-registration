@@ -41,6 +41,9 @@ class DatePicker:
         
         self.selected_date = None
         self.create_widgets()
+        
+        # Кнопка для закрытия окна
+        self.close_button = None
     
     def create_widgets(self):
         """Создает виджеты календаря."""
@@ -74,6 +77,25 @@ class DatePicker:
         self.calendar_frame.pack(fill='both', expand=True)
         
         self.update_calendar()
+        
+        # Кнопка закрытия
+        button_frame = ttk.Frame(self.frame)
+        button_frame.pack(fill='x', pady=10)
+        
+        self.close_button = ttk.Button(
+            button_frame, 
+            text="Закрыть", 
+            command=self.close_calendar,
+            width=15
+        )
+        self.close_button.pack()
+    
+    def close_calendar(self):
+        """Закрывает окно календаря"""
+        if hasattr(self.parent, 'destroy'):
+            self.parent.destroy()
+        else:
+            self.frame.destroy()
     
     def update_calendar(self):
         """Обновляет отображение календаря."""
@@ -117,11 +139,12 @@ class DatePicker:
                     btn.grid(row=week_num, column=day_num, padx=1, pady=1)
     
     def select_date(self, date):
-        """Выбирает дату."""
+        """Выбирает дату и закрывает календарь."""
         self.selected_date = date
         if self.callback:
             self.callback(date.strftime('%Y-%m-%d'))
-        self.frame.destroy()
+        # Закрываем окно после выбора даты
+        self.close_calendar()
     
     def prev_month(self):
         """Переход к предыдущему месяцу."""
