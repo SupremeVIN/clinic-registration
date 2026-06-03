@@ -33,15 +33,23 @@ class StatsTabMixin:
             ('patients', 'Пациентов:'),
             ('doctors', 'Врачей:'),
             ('appointments', 'Всего записей:'),
+            ('appointments_scheduled', '  └─ Запланированных:'),
+            ('appointments_cancelled', '  └─ Отменённых:'),
             ('today_appointments', 'Записей на сегодня:'),
             ('size_kb', 'Размер БД:'),
             ('last_backup', 'Последний бэкап:')
         ]
         
         for i, (key, label) in enumerate(stats_items):
-            ttk.Label(main_frame, text=label, font=('Arial', 11)).grid(
-                row=i+1, column=0, sticky='w', pady=5
-            )
+            # Для дочерних элементов используем отступ
+            if key in ['appointments_scheduled', 'appointments_cancelled']:
+                ttk.Label(main_frame, text=label, font=('Arial', 10), foreground='gray').grid(
+                    row=i+1, column=0, sticky='w', pady=2, padx=(20, 0)
+                )
+            else:
+                ttk.Label(main_frame, text=label, font=('Arial', 11)).grid(
+                    row=i+1, column=0, sticky='w', pady=5
+                )
             self.stats_labels[key] = ttk.Label(main_frame, text="...", font=('Arial', 11, 'bold'))
             self.stats_labels[key].grid(row=i+1, column=1, sticky='w', pady=5, padx=20)
         
@@ -84,6 +92,19 @@ class StatsTabMixin:
         self.stats_labels['patients'].config(text=str(stats['patients']))
         self.stats_labels['doctors'].config(text=str(stats['doctors']))
         self.stats_labels['appointments'].config(text=str(stats['appointments']))
+        
+        # Запланированные записи (зеленым цветом)
+        scheduled_text = str(stats['appointments_scheduled'])
+        if stats['appointments_scheduled'] > 0:
+            scheduled_text = f"✓ {scheduled_text}"
+        self.stats_labels['appointments_scheduled'].config(text=scheduled_text, foreground='green')
+        
+        # Отмененные записи (красным цветом)
+        cancelled_text = str(stats['appointments_cancelled'])
+        if stats['appointments_cancelled'] > 0:
+            cancelled_text = f"✗ {cancelled_text}"
+        self.stats_labels['appointments_cancelled'].config(text=cancelled_text, foreground='red')
+        
         self.stats_labels['today_appointments'].config(text=str(stats['today_appointments']))
         self.stats_labels['size_kb'].config(text=f"{stats['size_kb']} КБ")
         self.stats_labels['last_backup'].config(text=stats['last_backup'] or "нет")

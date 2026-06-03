@@ -20,6 +20,8 @@ def get_database_stats():
         'patients': 0,
         'doctors': 0,
         'appointments': 0,
+        'appointments_scheduled': 0,
+        'appointments_cancelled': 0,
         'today_appointments': 0,
         'size_kb': 0,
         'last_backup': None
@@ -39,9 +41,19 @@ def get_database_stats():
                 "SELECT COUNT(*) as count FROM appointments"
             ).fetchone()['count']
             
+            # Запланированные записи
+            stats['appointments_scheduled'] = conn.execute(
+                "SELECT COUNT(*) as count FROM appointments WHERE status = 'запланирован'"
+            ).fetchone()['count']
+            
+            # Отмененные записи
+            stats['appointments_cancelled'] = conn.execute(
+                "SELECT COUNT(*) as count FROM appointments WHERE status = 'отменён'"
+            ).fetchone()['count']
+            
             today = datetime.now().strftime('%Y-%m-%d')
             stats['today_appointments'] = conn.execute(
-                "SELECT COUNT(*) as count FROM appointments WHERE date = ?",
+                "SELECT COUNT(*) as count FROM appointments WHERE date = ? AND status = 'запланирован'",
                 (today,)
             ).fetchone()['count']
         
