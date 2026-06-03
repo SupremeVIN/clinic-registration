@@ -61,7 +61,6 @@ class DatePicker:
         
         ttk.Button(nav_frame, text="◀", width=3, command=self.prev_month).pack(side='left', padx=2)
         ttk.Button(nav_frame, text="▶", width=3, command=self.next_month).pack(side='left', padx=2)
-        ttk.Button(nav_frame, text="Сегодня", command=self.go_today).pack(side='left', padx=5)
         
         # Дни недели
         days_frame = ttk.Frame(self.frame)
@@ -160,9 +159,4 @@ class DatePicker:
             self.current_date = self.current_date.replace(year=self.current_date.year+1, month=1)
         else:
             self.current_date = self.current_date.replace(month=self.current_date.month+1)
-        self.update_calendar()
-    
-    def go_today(self):
-        """Переход к текущей дате."""
-        self.current_date = datetime.now().date()
         self.update_calendar()

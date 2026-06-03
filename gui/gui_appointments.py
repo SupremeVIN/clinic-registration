@@ -93,7 +93,7 @@ class AppointmentsTabMixin:
         
         ttk.Button(
             date_frame, 
-            text="", 
+            text="📅", 
             width=3,
             command=lambda: self.show_date_picker(
                 tab,
@@ -225,14 +225,20 @@ class AppointmentsTabMixin:
             messagebox.showwarning("Предупреждение", "Введите дату")
             return
         
-        # Проверяем, что дата не в прошлом
+        # Проверяем формат даты
         try:
             selected_date = datetime.strptime(date, '%Y-%m-%d').date()
-            if selected_date < datetime.now().date():
-                messagebox.showwarning("Предупреждение", "Нельзя выбрать дату в прошлом")
-                return
         except ValueError:
-            messagebox.showerror("Ошибка", "Неверный формат даты")
+            messagebox.showerror("Ошибка", 
+                               f"Неверный формат даты!\n\n"
+                               f"Введено: {date}\n"
+                               f"Ожидается формат: ГГГГ-ММ-ДД\n"
+                               f"Например: 2026-06-03")
+            return
+        
+        # Проверяем, что дата не в прошлом
+        if selected_date < datetime.now().date():
+            messagebox.showwarning("Предупреждение", "Нельзя выбрать дату в прошлом")
             return
         
         try:
@@ -292,6 +298,22 @@ class AppointmentsTabMixin:
             messagebox.showwarning("Предупреждение", "Введите дату")
             return
         
+        # Проверяем формат даты перед отправкой в БД
+        try:
+            selected_date = datetime.strptime(date, '%Y-%m-%d').date()
+        except ValueError:
+            messagebox.showerror("Ошибка", 
+                               f"Неверный формат даты!\n\n"
+                               f"Введено: {date}\n"
+                               f"Ожидается формат: ГГГГ-ММ-ДД\n"
+                               f"Например: 2026-06-03")
+            return
+        
+        # Проверяем, что дата не в прошлом
+        if selected_date < datetime.now().date():
+            messagebox.showwarning("Предупреждение", "Нельзя записаться на прошедшую дату")
+            return
+        
         appointment_id = db.add_appointment(self.selected_patient_id, doctor_id, date, self.selected_time)
         
         if appointment_id:
@@ -303,8 +325,12 @@ class AppointmentsTabMixin:
             self.update_status("Создана новая запись")
         else:
             messagebox.showerror("Ошибка", 
-                               "Не удалось создать запись.\n"
-                               "Возможно, это время уже занято.")
+                               "Не удалось создать запись.\n\n"
+                               "Возможные причины:\n"
+                               "• Это время уже занято\n"
+                               "• Неверный формат даты\n"
+                               "• Дата уже прошла\n\n"
+                               "Проверьте правильность введенных данных.")
     
     def clear_appointment_form(self):
         """Очищает форму записи"""
