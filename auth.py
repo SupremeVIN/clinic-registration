@@ -1,50 +1,11 @@
 """
 Модуль для аутентификации пользователей.
-Содержит простую систему входа по логину и паролю.
+Содержит систему входа по логину и паролю с проверкой в БД.
 """
 
-import hashlib
-import sqlite3
-from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox
-
-# Простая база пользователей (в реальном проекте хранилась бы в БД с хешированием)
-# Пароли хранятся в открытом виде для простоты (в учебном проекте)
-USERS = {
-    'user': {
-        'password': 'user123',
-        'role': 'user',
-        'name': 'Регистратор'
-    },
-    'admin': {
-        'password': 'admin123',
-        'role': 'admin',
-        'name': 'Администратор'
-    }
-}
-
-def authenticate(login, password):
-    """
-    Проверяет логин и пароль.
-    
-    Args:
-        login (str): логин
-        password (str): пароль
-    
-    Returns:
-        dict: данные пользователя или None
-    """
-    login = login.strip().lower()
-    
-    if login in USERS and USERS[login]['password'] == password:
-        return {
-            'login': login,
-            'role': USERS[login]['role'],
-            'name': USERS[login]['name']
-        }
-    
-    return None
+from database.users import authenticate
 
 class LoginDialog:
     """
@@ -54,14 +15,14 @@ class LoginDialog:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Вход в систему - Регистратура поликлиники")
-        self.root.geometry("400x350")
+        self.root.geometry("400x320")
         self.root.resizable(False, False)
         
         # Центрируем окно
         self.center_window()
         
         # Переменные
-        self.login_var = tk.StringVar(value='user')
+        self.login_var = tk.StringVar()
         self.password_var = tk.StringVar()
         self.user_data = None
         
@@ -84,9 +45,13 @@ class LoginDialog:
     
     def create_widgets(self):
         """Создает виджеты окна входа"""
+        # Основной фрейм с отступами
+        main_frame = ttk.Frame(self.root, padding="20")
+        main_frame.pack(fill='both', expand=True)
+        
         # Заголовок
-        title_frame = ttk.Frame(self.root)
-        title_frame.pack(fill='x', padx=20, pady=(30, 10))
+        title_frame = ttk.Frame(main_frame)
+        title_frame.pack(fill='x', pady=(0, 20))
         
         ttk.Label(
             title_frame,
@@ -101,93 +66,66 @@ class LoginDialog:
         ).pack(pady=(5, 0))
         
         # Форма входа
-        form_frame = ttk.Frame(self.root)
-        form_frame.pack(padx=40, pady=20, fill='both')
+        form_frame = ttk.Frame(main_frame)
+        form_frame.pack(fill='both', expand=True)
         
         # Логин
-        ttk.Label(form_frame, text="Логин:", font=('Arial', 10)).pack(anchor='w', pady=(10, 2))
+        ttk.Label(form_frame, text="Логин:", font=('Arial', 10)).pack(anchor='w', pady=(0, 2))
         
-        login_combo = ttk.Combobox(
-            form_frame,
-            textvariable=self.login_var,
-            values=['user', 'admin'],
-            state='readonly',
-            font=('Arial', 10),
-            width=30
-        )
-        login_combo.pack(fill='x', pady=(0, 10))
+        self.login_entry = ttk.Entry(form_frame, font=('Arial', 10), width=30)
+        self.login_entry.pack(fill='x', pady=(0, 15))
+        self.login_entry.focus()
         
         # Пароль
-        ttk.Label(form_frame, text="Пароль:", font=('Arial', 10)).pack(anchor='w', pady=(10, 2))
+        ttk.Label(form_frame, text="Пароль:", font=('Arial', 10)).pack(anchor='w', pady=(0, 2))
         
-        password_entry = ttk.Entry(
+        self.password_entry = ttk.Entry(
             form_frame,
             textvariable=self.password_var,
             show='•',
             font=('Arial', 10),
             width=30
         )
-        password_entry.pack(fill='x', pady=(0, 10))
-        password_entry.focus()
-        
-        # # Подсказка
-        # hint_frame = ttk.LabelFrame(form_frame, text="Тестовые учетные записи", padding=10)
-        # hint_frame.pack(fill='x', pady=10)
-        
-        # ttk.Label(
-        #     hint_frame,
-        #     text="Регистратор:",
-        #     font=('Arial', 9, 'bold')
-        # ).pack(anchor='w')
-        
-        # ttk.Label(
-        #     hint_frame,
-        #     text="   логин: user   пароль: user123",
-        #     font=('Arial', 9)
-        # ).pack(anchor='w')
-        
-        # ttk.Label(
-        #     hint_frame,
-        #     text="Администратор:",
-        #     font=('Arial', 9, 'bold')
-        # ).pack(anchor='w', pady=(5, 0))
-        
-        # ttk.Label(
-        #     hint_frame,
-        #     text="   логин: admin   пароль: admin123",
-        #     font=('Arial', 9)
-        # ).pack(anchor='w')
+        self.password_entry.pack(fill='x', pady=(0, 20))
         
         # Кнопки
-        button_frame = ttk.Frame(self.root)
-        button_frame.pack(pady=20)
+        button_frame = ttk.Frame(form_frame)
+        button_frame.pack(pady=10)
         
-        ttk.Button(
+        # Стиль для кнопок
+        style = ttk.Style()
+        style.configure('Login.TButton', font=('Arial', 10), padding=8)
+        
+        login_btn = ttk.Button(
             button_frame,
             text="Войти",
             command=self.login,
-            width=15
-        ).pack(side='left', padx=5)
+            width=15,
+            style='Login.TButton'
+        )
+        login_btn.pack(side='left', padx=5)
         
-        ttk.Button(
+        exit_btn = ttk.Button(
             button_frame,
             text="Выход",
             command=self.on_closing,
-            width=15
-        ).pack(side='left', padx=5)
+            width=15,
+            style='Login.TButton'
+        )
+        exit_btn.pack(side='left', padx=5)
         
         # Статус
         self.status_label = ttk.Label(
-            self.root,
+            main_frame,
             text="",
             foreground='red',
             font=('Arial', 9)
         )
-        self.status_label.pack(pady=(0, 20))
+        self.status_label.pack(pady=(10, 0))
     
     def login(self):
         """Обработка входа"""
-        login = self.login_var.get()
+        login = self.login_entry.get().strip()
         password = self.password_var.get()
         
         if not login or not password:
@@ -202,6 +140,8 @@ class LoginDialog:
         else:
             self.status_label.config(text="Неверный логин или пароль")
             self.password_var.set('')
+            self.password_entry.delete(0, tk.END)
+            self.login_entry.focus()
     
     def on_closing(self):
         """Закрытие окна"""

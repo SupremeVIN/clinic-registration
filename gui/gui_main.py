@@ -4,12 +4,13 @@
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 import os
 import shutil
 from pathlib import Path
 
+# Импортируем все миксины
 # Импортируем все миксины
 from gui.gui_validation import ValidationMixin
 from gui.gui_dialogs import DialogsMixin
@@ -17,11 +18,12 @@ from gui.gui_patients import PatientsTabMixin
 from gui.gui_doctors import DoctorsTabMixin
 from gui.gui_appointments import AppointmentsTabMixin
 from gui.gui_stats import StatsTabMixin
+from gui.gui_users import UsersTabMixin  # Добавляем
 from gui.gui_datepicker import DatePicker
 from database.config import DATA_DIR
 
 class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin, 
-                      DoctorsTabMixin, AppointmentsTabMixin, StatsTabMixin):
+                      DoctorsTabMixin, AppointmentsTabMixin, StatsTabMixin, UsersTabMixin):
     """
     Главный класс приложения.
     Содержит все методы для создания интерфейса и обработки событий.
@@ -54,6 +56,7 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         # Вкладка для управления врачами (только для админа)
         if self.user['role'] == 'admin':
             self.create_admin_doctors_tab()
+            self.create_users_tab()  # Добавляем вкладку управления пользователями
         
         self.create_new_appointment_tab()
         self.create_appointments_tab()
@@ -79,6 +82,7 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         style.configure('Action.TButton', font=('Arial', 10), padding=5)
         style.configure('Warning.TButton', font=('Arial', 10), padding=5, foreground='red')
         style.configure('Admin.TButton', font=('Arial', 10), padding=5, foreground='blue')
+        style.configure('Doctor.TButton', font=('Arial', 10), padding=5, foreground='green')
     
     def create_menu(self):
         """Создаёт главное меню программы"""
@@ -90,6 +94,18 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         file_menu.add_command(label="Обновить всё", command=self.refresh_all)
         file_menu.add_command(label="Очистить кэш БД", command=self.cleanup_database_cache)
         file_menu.add_command(label="Очистить кэш Python", command=self.cleanup_python_cache)
+        file_menu.add_separator()
+        
+        # Подменю импорта/экспорта
+        import_export_menu = tk.Menu(file_menu, tearoff=0)
+        file_menu.add_cascade(label="Импорт/Экспорт данных", menu=import_export_menu)
+        import_export_menu.add_command(label="Экспорт всех данных", command=self.export_all_data)
+        import_export_menu.add_command(label="Экспорт пациентов", command=lambda: self.export_data('patients'))
+        import_export_menu.add_command(label="Экспорт врачей", command=lambda: self.export_data('doctors'))
+        import_export_menu.add_command(label="Экспорт записей", command=lambda: self.export_data('appointments'))
+        import_export_menu.add_separator()
+        import_export_menu.add_command(label="Импорт пациентов (CSV)", command=self.import_patients)
+        
         file_menu.add_separator()
         file_menu.add_command(label="Создать резервную копию", command=self.create_backup)
         file_menu.add_separator()
@@ -106,6 +122,77 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         menubar.add_cascade(label="Справка", menu=help_menu)
         help_menu.add_command(label="О программе", command=self.show_about)
         help_menu.add_command(label="Руководство по безопасности", command=self.show_security_guide)
+    
+    def export_all_data(self):
+        """Экспорт всех данных"""
+        import database as db
+        
+        filepath = filedialog.asksaveasfilename(
+            title="Сохранить экспорт данных",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        
+        if filepath:
+            # Убираем расширение для базового имени
+            base_path = filepath.rsplit('.', 1)[0]
+            
+            if db.export_data(base_path, 'all'):
+                messagebox.showinfo("Успех", f"Данные экспортированы в:\n{base_path}_patients.csv\n{base_path}_doctors.csv\n{base_path}_appointments.csv")
+                self.update_status("Все данные экспортированы")
+            else:
+                messagebox.showerror("Ошибка", "Не удалось экспортировать данные")
+    
+    def export_data(self, data_type):
+        """Экспорт конкретного типа данных"""
+        import database as db
+        
+        types_map = {
+            'patients': ('Пациенты', '_patients.csv'),
+            'doctors': ('Врачи', '_doctors.csv'),
+            'appointments': ('Записи', '_appointments.csv')
+        }
+        
+        title, suffix = types_map.get(data_type, ('Данные', '.csv'))
+        
+        filepath = filedialog.asksaveasfilename(
+            title=f"Экспорт {title}",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        
+        if filepath:
+            base_path = filepath.rsplit('.', 1)[0]
+            
+            if db.export_data(base_path, data_type):
+                messagebox.showinfo("Успех", f"Данные экспортированы в:\n{base_path}{suffix}")
+                self.update_status(f"{title} экспортированы")
+            else:
+                messagebox.showerror("Ошибка", f"Не удалось экспортировать {title}")
+    
+    def import_patients(self):
+        """Импорт пациентов из CSV"""
+        import database as db
+        
+        filepath = filedialog.askopenfilename(
+            title="Выберите CSV файл для импорта пациентов",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        
+        if filepath:
+            success, count, errors = db.import_patients_from_csv(filepath)
+            
+            if success:
+                messagebox.showinfo("Успех", f"Импортировано пациентов: {count}\nОшибок: {len(errors)}")
+                self.load_patients()
+                self.load_stats()
+                self.update_status(f"Импортировано {count} пациентов")
+                if errors:
+                    with open("import_errors.log", "w", encoding='utf-8') as f:
+                        f.write("\n".join(errors))
+                    messagebox.showwarning("Ошибки импорта", f"Были ошибки при импорте. Подробности в файле import_errors.log")
+            else:
+                messagebox.showerror("Ошибка", f"Не удалось импортировать файл:\n{errors[0] if errors else 'Неизвестная ошибка'}")
     
     def cleanup_python_cache(self):
         """
@@ -242,6 +329,7 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
             entry.delete(0, tk.END)
             entry.insert(0, date_str)
             # Календарь закроется автоматически через DatePicker
+        
         # Создаем окно для календаря
         calendar_window = tk.Toplevel(parent)
         calendar_window.title("Выберите дату")

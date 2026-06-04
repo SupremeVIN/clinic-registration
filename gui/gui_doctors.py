@@ -75,15 +75,33 @@ class DoctorsTabMixin:
             self.update_status(f"Ошибка загрузки врачей: {e}")
     
     def load_doctors_to_combobox(self):
-        """Загружает врачей в выпадающий список"""
+        """Загружает врачей в выпадающий список (только для регистратора и админа)"""
         import database as db
         
         try:
             doctors = db.get_all_doctors()
-            doctor_list = [f"{d['id']}: {d['full_name']} ({d['specialty']})" for d in doctors]
-            self.doctor_combobox['values'] = doctor_list
-            if doctor_list:
-                self.doctor_combobox.current(0)
+            
+            # Для врача - показываем только его, для остальных - всех
+            if self.user['role'] == 'doctor':
+                # Находим врача, привязанного к пользователю
+                doctor = db.get_doctor_by_user_id(self.user['id'])
+                if doctor:
+                    doctor_list = [f"{doctor['id']}: {doctor['full_name']} ({doctor['specialty']})"]
+                    self.doctor_combobox['values'] = doctor_list
+                    if doctor_list:
+                        self.doctor_combobox.current(0)
+                    self.doctor_combobox.config(state='disabled')
+                else:
+                    self.doctor_combobox['values'] = []
+                    self.doctor_combobox.config(state='disabled')
+                    messagebox.showwarning("Предупреждение", "Ваша учетная запись не привязана к врачу. Обратитесь к администратору.")
+            else:
+                # Для админа и регистратора - все врачи
+                doctor_list = [f"{d['id']}: {d['full_name']} ({d['specialty']})" for d in doctors]
+                self.doctor_combobox['values'] = doctor_list
+                if doctor_list:
+                    self.doctor_combobox.current(0)
+                self.doctor_combobox.config(state='readonly')
         except Exception as e:
             self.update_status(f"Ошибка загрузки врачей: {e}")
     
@@ -277,7 +295,7 @@ class DoctorsTabMixin:
         name_frame = ttk.Frame(dialog)
         name_frame.grid(row=1, column=1, padx=10, pady=10, sticky='w')
         
-        # Валидация для ФИО (только буквы)
+        # Валидация для ФИО (только буквы, пробелы, дефис, точка)
         vcmd_name = (dialog.register(self.validate_doctor_name), '%P')
         name_entry = ttk.Entry(
             name_frame, 
@@ -290,7 +308,7 @@ class DoctorsTabMixin:
         
         ttk.Label(
             name_frame, 
-            text="(только буквы)", 
+            text="(только буквы, пробелы, дефис, точка)", 
             foreground='gray', 
             font=('Arial', 8)
         ).pack(side='left', padx=5)
@@ -303,7 +321,7 @@ class DoctorsTabMixin:
         specialty_frame = ttk.Frame(dialog)
         specialty_frame.grid(row=2, column=1, padx=10, pady=10, sticky='w')
         
-        # Валидация для специальности (только буквы)
+        # Валидация для специальности (только буквы, пробелы, дефис)
         vcmd_specialty = (dialog.register(self.validate_specialty), '%P')
         specialty_entry = ttk.Entry(
             specialty_frame, 
@@ -315,7 +333,7 @@ class DoctorsTabMixin:
         
         ttk.Label(
             specialty_frame, 
-            text="(только буквы)", 
+            text="(только буквы, пробелы, дефис)", 
             foreground='gray', 
             font=('Arial', 8)
         ).pack(side='left', padx=5)

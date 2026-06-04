@@ -9,10 +9,15 @@ from database.patients import (
     get_all_patients, search_patients, add_patient, 
     get_patient_by_id, update_patient, delete_patient
 )
-from database.doctors import get_all_doctors, get_doctor_by_id, check_room_unique
+from database.doctors import get_all_doctors, get_doctor_by_id, check_room_unique, add_doctor, update_doctor, delete_doctor
 from database.appointments import (
     get_free_time, add_appointment, get_all_appointments,
-    get_appointments_by_date, cancel_appointment, delete_old_appointments
+    search_appointments, cancel_appointment, delete_old_appointments,
+    export_data, import_patients_from_csv
+)
+from database.users import (
+    authenticate, get_all_users, add_user, update_user_password, delete_user,
+    get_doctor_by_user_id, get_doctor_by_full_name
 )
 from database.stats import get_database_stats
 from database.config import DATA_DIR, DB_PATH, AUDIT_LOG_PATH, BACKUP_DIR_PATH, ensure_data_dir
@@ -26,10 +31,14 @@ __all__ = [
     'get_all_patients', 'search_patients', 'add_patient',
     'get_patient_by_id', 'update_patient', 'delete_patient',
     # Doctors
-    'get_all_doctors', 'get_doctor_by_id', 'check_room_unique',
+    'get_all_doctors', 'get_doctor_by_id', 'check_room_unique', 'add_doctor', 'update_doctor', 'delete_doctor',
     # Appointments
     'get_free_time', 'add_appointment', 'get_all_appointments',
-    'get_appointments_by_date', 'cancel_appointment', 'delete_old_appointments',
+    'search_appointments', 'cancel_appointment', 'delete_old_appointments',
+    'export_data', 'import_patients_from_csv',
+    # Users
+    'authenticate', 'get_all_users', 'add_user', 'update_user_password', 'delete_user',
+    'get_doctor_by_user_id', 'get_doctor_by_full_name',
     # Stats
     'get_database_stats',
     # Config

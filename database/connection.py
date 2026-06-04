@@ -49,11 +49,11 @@ def verify_database_integrity():
             
             cursor = conn.execute("""
                 SELECT name FROM sqlite_master 
-                WHERE type='table' AND name IN ('patients', 'doctors', 'appointments')
+                WHERE type='table' AND name IN ('patients', 'doctors', 'appointments', 'users')
             """)
             tables = cursor.fetchall()
-            if len(tables) != 3:
-                log_action("INTEGRITY_CHECK", f"Missing tables: found {len(tables)} of 3")
+            if len(tables) != 4:
+                log_action("INTEGRITY_CHECK", f"Missing tables: found {len(tables)} of 4")
                 return False
         
         return True
@@ -147,10 +147,24 @@ def init_db():
                     full_name TEXT NOT NULL,
                     specialty TEXT,
                     room_number TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    user_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
                 )
             ''')
             print("  - Таблица 'doctors' готова")
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    full_name TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            print("  - Таблица 'users' готова")
             
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS appointments (
@@ -160,9 +174,11 @@ def init_db():
                     date TEXT NOT NULL,
                     time TEXT NOT NULL,
                     status TEXT DEFAULT 'запланирован',
+                    created_by TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     cancelled_at TIMESTAMP,
                     cancel_reason TEXT,
+                    cancelled_by TEXT,
                     FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
                     FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE,
                     UNIQUE(doctor_id, date, time)
@@ -170,28 +186,70 @@ def init_db():
             ''')
             print("  - Таблица 'appointments' готова")
             
+            # Добавляем колонки если их нет (для обновления существующей БД)
+            try:
+                cursor.execute("ALTER TABLE appointments ADD COLUMN created_by TEXT")
+                print("  - Добавлена колонка created_by")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                cursor.execute("ALTER TABLE appointments ADD COLUMN cancelled_by TEXT")
+                print("  - Добавлена колонка cancelled_by")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                cursor.execute("ALTER TABLE doctors ADD COLUMN user_id INTEGER")
+                print("  - Добавлена колонка user_id в doctors")
+            except sqlite3.OperationalError:
+                pass
+            
             # Индексы
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_patients_name ON patients(full_name)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_patients_policy ON patients(policy_number)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_appointments_doctor ON appointments(doctor_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)')
             print("  - Индексы созданы")
             
-            # Начальные данные
+            # Проверяем и создаем начальных пользователей
+            cursor.execute("SELECT COUNT(*) as count FROM users")
+            result = cursor.fetchone()
+            
+            if result and result['count'] == 0:
+                # Импортируем функцию хеширования
+                from database.users import hash_password
+                
+                # Создаем пользователей с хешированными паролями
+                users_data = [
+                    ('admin', hash_password('admin123'), 'admin', 'Администратор'),
+                    ('user', hash_password('user123'), 'registrar', 'Регистратор')
+                ]
+                
+                cursor.executemany(
+                    "INSERT INTO users (username, password, role, full_name) VALUES (?, ?, ?, ?)",
+                    users_data
+                )
+                print(f"  - Добавлено {len(users_data)} пользователей")
+                log_action("INIT", f"Added {len(users_data)} default users")
+            
+            # Проверяем и создаем начальных врачей (без привязки к пользователям)
             cursor.execute("SELECT COUNT(*) as count FROM doctors")
             result = cursor.fetchone()
             
             if result and result['count'] == 0:
                 doctors_data = [
-                    ('Иванов Иван Иванович', 'Терапевт', '101'),
-                    ('Петрова Анна Сергеевна', 'Окулист', '205'),
-                    ('Сидоров Петр Петрович', 'Хирург', '310'),
-                    ('Смирнова Елена Викторовна', 'Педиатр', '115'),
-                    ('Козлов Дмитрий Николаевич', 'Невролог', '220')
+                    ('Иванов Иван Иванович', 'Терапевт', '101', None),
+                    ('Петрова Анна Сергеевна', 'Окулист', '205', None),
+                    ('Сидоров Петр Петрович', 'Хирург', '310', None),
+                    ('Смирнова Елена Викторовна', 'Педиатр', '115', None),
+                    ('Козлов Дмитрий Николаевич', 'Невролог', '220', None)
                 ]
                 
                 cursor.executemany(
-                    "INSERT INTO doctors (full_name, specialty, room_number) VALUES (?,?,?)",
+                    "INSERT INTO doctors (full_name, specialty, room_number, user_id) VALUES (?, ?, ?, ?)",
                     doctors_data
                 )
                 print(f"  - Добавлено {len(doctors_data)} врачей")
