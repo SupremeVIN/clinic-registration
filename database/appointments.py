@@ -4,7 +4,6 @@
 
 import sqlite3
 import csv
-import json
 from datetime import datetime, timedelta
 from database.connection import get_connection
 from database.security import log_action, sanitize_input, validate_date
@@ -167,8 +166,7 @@ def get_all_appointments(doctor_id=None, status=None, date_from=None, date_to=No
                 a.date,
                 a.time,
                 a.status,
-                a.created_by,
-                a.cancel_reason
+                a.created_by
             FROM appointments a
             JOIN patients p ON a.patient_id = p.id
             JOIN doctors d ON a.doctor_id = d.id
@@ -229,8 +227,7 @@ def search_appointments(search_text, doctor_id=None):
                 a.date,
                 a.time,
                 a.status,
-                a.created_by,
-                a.cancel_reason
+                a.created_by
             FROM appointments a
             JOIN patients p ON a.patient_id = p.id
             JOIN doctors d ON a.doctor_id = d.id
@@ -251,13 +248,12 @@ def search_appointments(search_text, doctor_id=None):
         log_action("DB_ERROR", f"Error searching appointments: {str(e)}")
         return []
 
-def cancel_appointment(appointment_id, reason=None, cancelled_by=None):
+def cancel_appointment(appointment_id, cancelled_by=None):
     """
     Отменяет запись на приём.
     
     Args:
         appointment_id (int): ID записи
-        reason (str): причина отмены
         cancelled_by (str): кто отменил запись
     
     Returns:
@@ -278,15 +274,13 @@ def cancel_appointment(appointment_id, reason=None, cancelled_by=None):
                 log_action("CANCEL_ERROR", f"Appointment {appointment_id} already cancelled")
                 return False
             
-            reason = sanitize_input(reason, 200) if reason else None
             conn.execute('''
                 UPDATE appointments 
                 SET status = 'отменён', 
                     cancelled_at = CURRENT_TIMESTAMP,
-                    cancel_reason = ?,
                     cancelled_by = ?
                 WHERE id = ?
-            ''', (reason, cancelled_by, appointment_id))
+            ''', (cancelled_by, appointment_id))
             conn.commit()
             
             log_action("CANCEL_APPOINTMENT", f"Cancelled appointment ID:{appointment_id} by {cancelled_by}")
@@ -359,9 +353,9 @@ def export_data(filepath, data_type='all'):
                 appointments = cursor.fetchall()
                 with open(f"{filepath}_appointments.csv", 'w', encoding='utf-8', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['id', 'patient_id', 'doctor_id', 'date', 'time', 'status', 'created_by', 'created_at', 'cancelled_at', 'cancel_reason', 'cancelled_by'])
+                    writer.writerow(['id', 'patient_id', 'doctor_id', 'date', 'time', 'status', 'created_by', 'created_at', 'cancelled_at', 'cancelled_by'])
                     for row in appointments:
-                        writer.writerow([row['id'], row['patient_id'], row['doctor_id'], row['date'], row['time'], row['status'], row['created_by'], row['created_at'], row['cancelled_at'], row['cancel_reason'], row['cancelled_by']])
+                        writer.writerow([row['id'], row['patient_id'], row['doctor_id'], row['date'], row['time'], row['status'], row['created_by'], row['created_at'], row['cancelled_at'], row['cancelled_by']])
                 log_action("EXPORT", f"Exported {len(appointments)} appointments to {filepath}_appointments.csv")
         
         return True

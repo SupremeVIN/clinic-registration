@@ -223,8 +223,7 @@ class AppointmentsTabMixin:
                     self.doctor_combobox['values'] = doctor_list
                     if doctor_list:
                         self.doctor_combobox.current(0)
-                    self.doctor_combobox.config(state='readonly')
-                    self.doctor_combobox.config(state='disabled')  # Делаем недоступным для выбора (только один вариант)
+                    self.doctor_combobox.config(state='disabled')
                 else:
                     self.doctor_combobox['values'] = []
                     self.doctor_combobox.config(state='disabled')
@@ -483,8 +482,8 @@ class AppointmentsTabMixin:
             command=self.show_today_appointments
         ).pack(side='right', padx=2)
         
-        # Таблица записей - увеличиваем ширину колонки "Причина отмены"
-        columns = ('id', 'Пациент', 'Полис', 'Врач', 'Специальность', 'Кабинет', 'Дата', 'Время', 'Статус', 'Кто создал', 'Причина отмены')
+        # Таблица записей (без колонки "Причина отмены")
+        columns = ('id', 'Пациент', 'Полис', 'Врач', 'Специальность', 'Кабинет', 'Дата', 'Время', 'Статус', 'Кто создал')
         self.appointments_tree = ttk.Treeview(
             tab, 
             columns=columns, 
@@ -495,8 +494,7 @@ class AppointmentsTabMixin:
         for col in columns:
             self.appointments_tree.heading(col, text=col)
         
-        # Увеличиваем ширину для причины отмены
-        widths = [50, 200, 100, 200, 120, 60, 80, 80, 100, 150, 300]
+        widths = [50, 200, 100, 200, 120, 60, 80, 80, 100, 150]
         for col, width in zip(columns, widths):
             self.appointments_tree.column(col, width=width)
         
@@ -553,9 +551,7 @@ class AppointmentsTabMixin:
                 self.appointments_tree.delete(row)
             
             for apt in appointments:
-                cancel_reason = apt['cancel_reason'] or ''
                 created_by = apt['created_by'] or ''
-                
                 tag = 'cancelled' if apt['status'] == 'отменён' else ''
                 
                 self.appointments_tree.insert('', 'end', values=(
@@ -568,8 +564,7 @@ class AppointmentsTabMixin:
                     apt['date'],
                     apt['time'],
                     apt['status'],
-                    created_by,
-                    cancel_reason
+                    created_by
                 ), tags=(tag,))
             
             self.appointments_tree.tag_configure('cancelled', foreground='red')
@@ -603,10 +598,7 @@ class AppointmentsTabMixin:
             appointments = db.get_all_appointments(doctor_id=doctor_id, status=status, date_from=date_from, date_to=date_to)
             
             for apt in appointments:
-                cancel_reason = apt['cancel_reason'] or ''
                 created_by = apt['created_by'] or ''
-                
-                # Для отмененных записей выделяем красным
                 tag = 'cancelled' if apt['status'] == 'отменён' else ''
                 
                 self.appointments_tree.insert('', 'end', values=(
@@ -619,8 +611,7 @@ class AppointmentsTabMixin:
                     apt['date'],
                     apt['time'],
                     apt['status'],
-                    created_by,
-                    cancel_reason
+                    created_by
                 ), tags=(tag,))
             
             # Настройка цветов
@@ -656,59 +647,14 @@ class AppointmentsTabMixin:
                               f"Дата: {date}\n"
                               f"Время: {time}"):
             
-            reason = None
-            if messagebox.askyesno("Причина отмены", "Указать причину отмены?"):
-                reason = self.ask_cancel_reason()
-            
             cancelled_by = f"{self.user['name']} ({self.user['role']})"
             
-            if db.cancel_appointment(appointment_id, reason, cancelled_by):
+            if db.cancel_appointment(appointment_id, cancelled_by):
                 self.load_appointments()
                 self.update_status(f"Запись отменена пользователем {cancelled_by}")
                 messagebox.showinfo("Успех", "Запись отменена")
             else:
                 messagebox.showerror("Ошибка", "Не удалось отменить запись")
-    
-    def ask_cancel_reason(self):
-        """Запрашивает причину отмены"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Причина отмены")
-        dialog.geometry("450x200")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        ttk.Label(dialog, text="Укажите причину отмены:", font=('Arial', 10)).pack(pady=10)
-        
-        reason_var = tk.StringVar()
-        reason_entry = ttk.Entry(dialog, textvariable=reason_var, width=50)
-        reason_entry.pack(pady=10, padx=20, fill='x')
-        reason_entry.focus()
-        
-        ttk.Label(dialog, text="(максимум 200 символов)", foreground='gray', font=('Arial', 8)).pack()
-        
-        result = None
-        
-        def on_ok():
-            nonlocal result
-            result = reason_var.get().strip()
-            if len(result) > 200:
-                messagebox.showwarning("Предупреждение", "Причина отмены не должна превышать 200 символов")
-                return
-            dialog.destroy()
-        
-        def on_skip():
-            nonlocal result
-            result = None
-            dialog.destroy()
-        
-        button_frame = ttk.Frame(dialog)
-        button_frame.pack(pady=15)
-        
-        ttk.Button(button_frame, text="OK", command=on_ok, width=12).pack(side='left', padx=5)
-        ttk.Button(button_frame, text="Пропустить", command=on_skip, width=12).pack(side='left', padx=5)
-        
-        dialog.wait_window()
-        return result
     
     def delete_old_appointments(self):
         """Удаляет старые записи"""

@@ -177,7 +177,6 @@ def init_db():
                     created_by TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     cancelled_at TIMESTAMP,
-                    cancel_reason TEXT,
                     cancelled_by TEXT,
                     FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
                     FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE,
