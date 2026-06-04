@@ -253,7 +253,7 @@ class DoctorsTabMixin:
         
         dialog = tk.Toplevel(self.root)
         dialog.title("Редактирование врача" if mode == "edit" else "Добавление врача")
-        dialog.geometry("600x400")
+        dialog.geometry("600x450")
         dialog.transient(self.root)
         dialog.grab_set()
         
@@ -270,7 +270,7 @@ class DoctorsTabMixin:
         ).grid(row=0, column=0, columnspan=3, pady=10)
         
         # ФИО
-        ttk.Label(dialog, text="ФИО *", font=('Arial', 10)).grid(
+        ttk.Label(dialog, text="ФИО", font=('Arial', 10)).grid(
             row=1, column=0, padx=10, pady=10, sticky='w'
         )
         
@@ -296,7 +296,7 @@ class DoctorsTabMixin:
         ).pack(side='left', padx=5)
         
         # Специальность
-        ttk.Label(dialog, text="Специальность *", font=('Arial', 10)).grid(
+        ttk.Label(dialog, text="Специальность", font=('Arial', 10)).grid(
             row=2, column=0, padx=10, pady=10, sticky='w'
         )
         
@@ -387,6 +387,15 @@ class DoctorsTabMixin:
         
         specialty_entry.bind('<KeyRelease>', update_specialty_counter)
         
+        # Метка для ошибок
+        error_label = ttk.Label(
+            dialog,
+            text="",
+            foreground='red',
+            font=('Arial', 9)
+        )
+        error_label.grid(row=4, column=0, columnspan=3, pady=5)
+        
         # Если режим редактирования - заполняем поля
         if mode == "edit" and doctor:
             name_entry.insert(0, doctor['full_name'] or '')
@@ -402,55 +411,70 @@ class DoctorsTabMixin:
             foreground='green',
             font=('Arial', 9)
         )
-        security_label.grid(row=4, column=0, columnspan=3, pady=10)
+        security_label.grid(row=5, column=0, columnspan=3, pady=10)
         
         # Кнопки
         button_frame = ttk.Frame(dialog)
-        button_frame.grid(row=5, column=0, columnspan=3, pady=20)
+        button_frame.grid(row=6, column=0, columnspan=3, pady=20)
         
         def save_doctor():
+            # Очищаем сообщение об ошибке
+            error_label.config(text="")
+            
             name = name_entry.get().strip()
             specialty = specialty_entry.get().strip()
             room = room_entry.get().strip()
             
             # Проверка обязательных полей
             if not name:
-                messagebox.showerror("Ошибка", "ФИО обязательно для заполнения")
+                error_label.config(text="Ошибка: ФИО обязательно для заполнения")
                 name_entry.focus()
                 return
             
             if not specialty:
-                messagebox.showerror("Ошибка", "Специальность обязательна для заполнения")
+                error_label.config(text="Ошибка: Специальность обязательна для заполнения")
                 specialty_entry.focus()
                 return
             
             # Проверка минимальной длины
             if len(name) < 2:
-                messagebox.showerror("Ошибка", "ФИО должно содержать минимум 2 символа")
+                error_label.config(text="Ошибка: ФИО должно содержать минимум 2 символа")
                 name_entry.focus()
                 return
             
             if len(specialty) < 2:
-                messagebox.showerror("Ошибка", "Специальность должна содержать минимум 2 символа")
+                error_label.config(text="Ошибка: Специальность должна содержать минимум 2 символа")
                 specialty_entry.focus()
                 return
             
             # Проверка максимальной длины
             if len(name) > 100:
-                messagebox.showerror("Ошибка", "ФИО слишком длинное (максимум 100 символов)")
+                error_label.config(text="Ошибка: ФИО слишком длинное (максимум 100 символов)")
                 name_entry.focus()
                 return
             
             if len(specialty) > 50:
-                messagebox.showerror("Ошибка", "Специальность слишком длинная (максимум 50 символов)")
+                error_label.config(text="Ошибка: Специальность слишком длинная (максимум 50 символов)")
                 specialty_entry.focus()
                 return
             
-            # Дополнительная проверка для кабинета (если указан)
-            if room and len(room) > 10:
-                messagebox.showerror("Ошибка", "Номер кабинета слишком длинный (максимум 10 символов)")
-                room_entry.focus()
-                return
+            # Проверка кабинета на уникальность
+            if room:
+                if len(room) > 10:
+                    error_label.config(text="Ошибка: Номер кабинета слишком длинный (максимум 10 символов)")
+                    room_entry.focus()
+                    return
+                
+                # Проверяем, не занят ли кабинет
+                if mode == "add":
+                    is_unique, msg = db.check_room_unique(room)
+                else:
+                    is_unique, msg = db.check_room_unique(room, doctor['id'])
+                
+                if not is_unique:
+                    error_label.config(text=msg)
+                    room_entry.focus()
+                    return
             
             try:
                 if mode == "add":
@@ -458,7 +482,7 @@ class DoctorsTabMixin:
                         cursor = conn.execute('''
                             INSERT INTO doctors (full_name, specialty, room_number)
                             VALUES (?, ?, ?)
-                        ''', (name, specialty, room))
+                        ''', (name, specialty, room if room else None))
                         conn.commit()
                         doctor_id = cursor.lastrowid
                     
@@ -470,7 +494,7 @@ class DoctorsTabMixin:
                             UPDATE doctors 
                             SET full_name = ?, specialty = ?, room_number = ?
                             WHERE id = ?
-                        ''', (name, specialty, room, doctor['id']))
+                        ''', (name, specialty, room if room else None, doctor['id']))
                         conn.commit()
                     
                     messagebox.showinfo("Успех", "Данные врача обновлены")
@@ -483,7 +507,7 @@ class DoctorsTabMixin:
                 dialog.destroy()
                 self.update_status(f"Врач {name} сохранён")
             except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось сохранить врача: {e}")
+                error_label.config(text=f"Ошибка: {str(e)}")
                 db.log_action("DOCTOR_ERROR", f"Error saving doctor: {str(e)}")
         
         ttk.Button(

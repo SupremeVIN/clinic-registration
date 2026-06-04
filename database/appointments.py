@@ -31,6 +31,7 @@ def get_free_time(doctor_id, date):
                 all_times.append(time_str)
         
         with get_connection() as conn:
+            # Проверяем только запланированные записи (не отменённые)
             cursor = conn.execute('''
                 SELECT time FROM appointments 
                 WHERE doctor_id = ? AND date = ? AND status = 'запланирован'
@@ -84,6 +85,17 @@ def add_appointment(patient_id, doctor_id, date, time):
                 log_action("VALIDATION_ERROR", f"Invalid patient or doctor ID")
                 return None
             
+            # Проверяем, есть ли уже запланированная запись на это время
+            existing = conn.execute('''
+                SELECT id, status FROM appointments 
+                WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'запланирован'
+            ''', (doctor_id, date, time)).fetchone()
+            
+            if existing:
+                log_action("DUPLICATE_APPOINTMENT", 
+                          f"Attempt to book occupied slot: doctor {doctor_id} at {date} {time}")
+                return None
+            
             cursor = conn.execute('''
                 INSERT INTO appointments (patient_id, doctor_id, date, time, status)
                 VALUES (?, ?, ?, ?, 'запланирован')
@@ -95,9 +107,33 @@ def add_appointment(patient_id, doctor_id, date, time):
                       f"Created appointment ID:{appointment_id} for patient:{patient_id} doctor:{doctor_id}")
             
             return appointment_id
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError as e:
+        # Проверяем, что это не конфликт с отменённой записью
+        with get_connection() as conn2:
+            cancelled = conn2.execute('''
+                SELECT id FROM appointments 
+                WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'отменён'
+            ''', (doctor_id, date, time)).fetchone()
+            
+            if cancelled:
+                # Если есть отменённая запись, удаляем её и создаём новую
+                conn2.execute("DELETE FROM appointments WHERE id = ?", (cancelled['id'],))
+                conn2.commit()
+                
+                # Создаём новую запись
+                cursor = conn2.execute('''
+                    INSERT INTO appointments (patient_id, doctor_id, date, time, status)
+                    VALUES (?, ?, ?, ?, 'запланирован')
+                ''', (patient_id, doctor_id, date, time))
+                conn2.commit()
+                
+                appointment_id = cursor.lastrowid
+                log_action("ADD_APPOINTMENT", 
+                          f"Replaced cancelled appointment ID:{cancelled['id']} with new ID:{appointment_id}")
+                return appointment_id
+        
         log_action("DUPLICATE_APPOINTMENT", 
-                  f"Attempt to book occupied slot: doctor {doctor_id} at {date} {time}")
+                  f"IntegrityError: doctor {doctor_id} at {date} {time} - {str(e)}")
         return None
     except sqlite3.DatabaseError as e:
         log_action("DB_ERROR", f"Error adding appointment: {str(e)}")
@@ -183,7 +219,7 @@ def cancel_appointment(appointment_id, reason=None):
     try:
         with get_connection() as conn:
             appointment = conn.execute(
-                "SELECT status FROM appointments WHERE id = ?", 
+                "SELECT id, status, doctor_id, date, time FROM appointments WHERE id = ?", 
                 (appointment_id,)
             ).fetchone()
             

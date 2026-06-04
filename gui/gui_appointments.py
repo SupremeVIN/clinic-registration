@@ -381,7 +381,8 @@ class AppointmentsTabMixin:
             command=self.delete_old_appointments
         ).pack(side='left', padx=2)
         
-        columns = ('id', 'Пациент', 'Полис', 'Врач', 'Специальность', 'Кабинет', 'Дата', 'Время', 'Статус')
+        # Добавляем колонку "Причина отмены"
+        columns = ('id', 'Пациент', 'Полис', 'Врач', 'Специальность', 'Кабинет', 'Дата', 'Время', 'Статус', 'Причина отмены')
         self.appointments_tree = ttk.Treeview(
             tab, 
             columns=columns, 
@@ -392,7 +393,7 @@ class AppointmentsTabMixin:
         for col in columns:
             self.appointments_tree.heading(col, text=col)
         
-        widths = [50, 200, 100, 200, 120, 60, 80, 80, 100]
+        widths = [50, 200, 100, 200, 120, 60, 80, 80, 100, 200]
         for col, width in zip(columns, widths):
             self.appointments_tree.column(col, width=width)
         
@@ -418,6 +419,18 @@ class AppointmentsTabMixin:
             
             appointments = db.get_all_appointments()
             for apt in appointments:
+                # Получаем причину отмены для отмененных записей
+                cancel_reason = ''
+                if apt['status'] == 'отменён':
+                    # Нужно получить причину из БД
+                    with db.get_connection() as conn:
+                        result = conn.execute(
+                            "SELECT cancel_reason FROM appointments WHERE id = ?",
+                            (apt['id'],)
+                        ).fetchone()
+                        if result and result['cancel_reason']:
+                            cancel_reason = result['cancel_reason']
+                
                 self.appointments_tree.insert('', 'end', values=(
                     apt['id'],
                     apt['patient_name'],
@@ -427,7 +440,8 @@ class AppointmentsTabMixin:
                     apt['room_number'] or '',
                     apt['date'],
                     apt['time'],
-                    apt['status']
+                    apt['status'],
+                    cancel_reason
                 ))
             
             self.update_status(f"Загружено {len(appointments)} записей")
