@@ -8,9 +8,9 @@ from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 import os
 import shutil
+import threading
 from pathlib import Path
 
-# Импортируем все миксины
 # Импортируем все миксины
 from gui.gui_validation import ValidationMixin
 from gui.gui_dialogs import DialogsMixin
@@ -18,7 +18,7 @@ from gui.gui_patients import PatientsTabMixin
 from gui.gui_doctors import DoctorsTabMixin
 from gui.gui_appointments import AppointmentsTabMixin
 from gui.gui_stats import StatsTabMixin
-from gui.gui_users import UsersTabMixin  # Добавляем
+from gui.gui_users import UsersTabMixin
 from gui.gui_datepicker import DatePicker
 from database.config import DATA_DIR
 
@@ -56,15 +56,14 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         # Вкладка для управления врачами (только для админа)
         if self.user['role'] == 'admin':
             self.create_admin_doctors_tab()
-            self.create_users_tab()  # Добавляем вкладку управления пользователями
+            self.create_users_tab()
         
         self.create_new_appointment_tab()
         self.create_appointments_tab()
         self.create_stats_tab()
         
-        self.update_status(f"Программа готова к работе. Пользователь: {self.user['name']}")
-        
-        self.after_id = self.root.after(1000, self.show_startup_info)
+        # Информация о безопасности в строке состояния вместо раздражающего диалога
+        self.update_status(f"Добро пожаловать, {self.user['name']}! База данных защищена, все меры безопасности активны.")
     
     def center_window(self):
         """Центрирует окно на экране"""
@@ -171,7 +170,7 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
                 messagebox.showerror("Ошибка", f"Не удалось экспортировать {title}")
     
     def import_patients(self):
-        """Импорт пациентов из CSV"""
+        """Импорт пациентов из CSV с прогресс-баром"""
         import database as db
         
         filepath = filedialog.askopenfilename(
@@ -179,20 +178,57 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
         
-        if filepath:
-            success, count, errors = db.import_patients_from_csv(filepath)
-            
-            if success:
-                messagebox.showinfo("Успех", f"Импортировано пациентов: {count}\nОшибок: {len(errors)}")
-                self.load_patients()
-                self.load_stats()
-                self.update_status(f"Импортировано {count} пациентов")
-                if errors:
-                    with open("import_errors.log", "w", encoding='utf-8') as f:
-                        f.write("\n".join(errors))
-                    messagebox.showwarning("Ошибки импорта", f"Были ошибки при импорте. Подробности в файле import_errors.log")
-            else:
-                messagebox.showerror("Ошибка", f"Не удалось импортировать файл:\n{errors[0] if errors else 'Неизвестная ошибка'}")
+        if not filepath:
+            return
+        
+        # Создаем окно прогресса
+        progress_window = tk.Toplevel(self.root)
+        progress_window.title("Импорт данных")
+        progress_window.geometry("400x150")
+        progress_window.transient(self.root)
+        progress_window.grab_set()
+        
+        # Центрируем окно
+        progress_window.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - progress_window.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - progress_window.winfo_height()) // 2
+        progress_window.geometry(f"+{x}+{y}")
+        
+        ttk.Label(progress_window, text="Импорт пациентов...", font=('Arial', 12)).pack(pady=20)
+        
+        progress_bar = ttk.Progressbar(progress_window, mode='indeterminate', length=300)
+        progress_bar.pack(pady=10)
+        progress_bar.start()
+        
+        status_label = ttk.Label(progress_window, text="Обработка файла...", foreground='gray')
+        status_label.pack(pady=10)
+        
+        def do_import():
+            try:
+                success, count, errors = db.import_patients_from_csv(filepath)
+                self.root.after(0, lambda: self._import_complete(progress_window, success, count, errors))
+            except Exception as e:
+                self.root.after(0, lambda: self._import_complete(progress_window, False, 0, [str(e)]))
+        
+        thread = threading.Thread(target=do_import)
+        thread.daemon = True
+        thread.start()
+    
+    def _import_complete(self, progress_window, success, count, errors):
+        """Обработка завершения импорта"""
+        progress_window.destroy()
+        
+        if success:
+            messagebox.showinfo("Успех", f"Импортировано пациентов: {count}\nОшибок: {len(errors)}")
+            self.load_patients()
+            self.load_stats()
+            self.update_status(f"Импортировано {count} пациентов")
+            if errors:
+                with open("import_errors.log", "w", encoding='utf-8') as f:
+                    f.write("\n".join(errors))
+                messagebox.showwarning("Ошибки импорта", f"Были ошибки при импорте. Подробности в файле import_errors.log")
+        else:
+            messagebox.showerror("Ошибка", f"Не удалось импортировать файл:\n{errors[0] if errors else 'Неизвестная ошибка'}")
     
     def cleanup_python_cache(self):
         """
@@ -328,7 +364,6 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         def on_date_selected(date_str):
             entry.delete(0, tk.END)
             entry.insert(0, date_str)
-            # Календарь закроется автоматически через DatePicker
         
         # Создаем окно для календаря
         calendar_window = tk.Toplevel(parent)

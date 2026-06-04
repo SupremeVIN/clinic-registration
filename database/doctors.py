@@ -6,16 +6,22 @@ import sqlite3
 from database.connection import get_connection
 from database.security import log_action
 
-def get_all_doctors():
+def get_all_doctors(include_deleted=False):
     """
     Возвращает список всех врачей.
+    
+    Args:
+        include_deleted (bool): включать удаленных врачей
     
     Returns:
         list: список всех врачей
     """
     try:
         with get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM doctors ORDER BY full_name")
+            if include_deleted:
+                cursor = conn.execute("SELECT * FROM doctors ORDER BY full_name")
+            else:
+                cursor = conn.execute("SELECT * FROM doctors WHERE is_deleted = 0 ORDER BY full_name")
             return cursor.fetchall()
     except sqlite3.DatabaseError as e:
         log_action("DB_ERROR", f"Error getting all doctors: {str(e)}")
@@ -60,12 +66,12 @@ def check_room_unique(room_number, exclude_doctor_id=None):
         with get_connection() as conn:
             if exclude_doctor_id:
                 cursor = conn.execute(
-                    "SELECT id, full_name FROM doctors WHERE room_number = ? AND id != ?",
+                    "SELECT id, full_name FROM doctors WHERE room_number = ? AND id != ? AND is_deleted = 0",
                     (room_number, exclude_doctor_id)
                 )
             else:
                 cursor = conn.execute(
-                    "SELECT id, full_name FROM doctors WHERE room_number = ?",
+                    "SELECT id, full_name FROM doctors WHERE room_number = ? AND is_deleted = 0",
                     (room_number,)
                 )
             
@@ -100,8 +106,8 @@ def add_doctor(full_name, specialty, room_number, user_id=None):
     try:
         with get_connection() as conn:
             cursor = conn.execute('''
-                INSERT INTO doctors (full_name, specialty, room_number, user_id)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO doctors (full_name, specialty, room_number, user_id, is_deleted)
+                VALUES (?, ?, ?, ?, 0)
             ''', (full_name, specialty, room_number, user_id))
             conn.commit()
             doctor_id = cursor.lastrowid
@@ -140,7 +146,7 @@ def update_doctor(doctor_id, full_name, specialty, room_number):
 
 def delete_doctor(doctor_id):
     """
-    Удаляет врача.
+    Мягкое удаление врача (помечаем как удалённого, но сохраняем историю).
     
     Returns:
         dict: результат операции
@@ -157,9 +163,10 @@ def delete_doctor(doctor_id):
             if result and result['count'] > 0:
                 return {'success': False, 'future_appointments': result['count']}
             
-            conn.execute("DELETE FROM doctors WHERE id = ?", (doctor_id,))
+            # Мягкое удаление - помечаем как удалённого
+            conn.execute("UPDATE doctors SET is_deleted = 1, deleted_at = CURRENT_TIMESTAMP WHERE id = ?", (doctor_id,))
             conn.commit()
-            log_action("DELETE_DOCTOR", f"Deleted doctor ID:{doctor_id}")
+            log_action("DELETE_DOCTOR", f"Soft deleted doctor ID:{doctor_id}")
             return {'success': True}
     except sqlite3.DatabaseError as e:
         log_action("DB_ERROR", f"Error deleting doctor: {str(e)}")

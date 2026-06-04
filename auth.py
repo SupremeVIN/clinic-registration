@@ -5,7 +5,7 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database.users import authenticate
+from database.users import authenticate, is_user_blocked, get_failed_attempts_count
 
 class LoginDialog:
     """
@@ -15,7 +15,7 @@ class LoginDialog:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Вход в систему - Регистратура поликлиники")
-        self.root.geometry("400x320")
+        self.root.geometry("450x400")  # Увеличено с 400x320 до 450x400
         self.root.resizable(False, False)
         
         # Центрируем окно
@@ -72,7 +72,7 @@ class LoginDialog:
         # Логин
         ttk.Label(form_frame, text="Логин:", font=('Arial', 10)).pack(anchor='w', pady=(0, 2))
         
-        self.login_entry = ttk.Entry(form_frame, font=('Arial', 10), width=30)
+        self.login_entry = ttk.Entry(form_frame, font=('Arial', 10), width=35)
         self.login_entry.pack(fill='x', pady=(0, 15))
         self.login_entry.focus()
         
@@ -84,7 +84,7 @@ class LoginDialog:
             textvariable=self.password_var,
             show='•',
             font=('Arial', 10),
-            width=30
+            width=35
         )
         self.password_entry.pack(fill='x', pady=(0, 20))
         
@@ -114,22 +114,32 @@ class LoginDialog:
         )
         exit_btn.pack(side='left', padx=5)
         
-        # Статус
+        # Статус (для сообщений об ошибках)
         self.status_label = ttk.Label(
             main_frame,
             text="",
             foreground='red',
-            font=('Arial', 9)
+            font=('Arial', 9),
+            wraplength=380,  # Перенос текста
+            justify='center'
         )
-        self.status_label.pack(pady=(10, 0))
+        self.status_label.pack(pady=(10, 5))
     
     def login(self):
-        """Обработка входа"""
+        """Обработка входа с проверкой блокировки"""
         login = self.login_entry.get().strip()
         password = self.password_var.get()
         
         if not login or not password:
             self.status_label.config(text="Введите логин и пароль")
+            return
+        
+        # Сначала проверяем, не заблокирован ли пользователь
+        is_blocked, block_message = is_user_blocked(login)
+        
+        if is_blocked:
+            self.status_label.config(text=block_message, foreground='red')
+            self.login_entry.focus()
             return
         
         user = authenticate(login, password)
@@ -138,7 +148,20 @@ class LoginDialog:
             self.user_data = user
             self.root.destroy()
         else:
-            self.status_label.config(text="Неверный логин или пароль")
+            # Показываем количество оставшихся попыток
+            attempts = get_failed_attempts_count(login)
+            remaining = 5 - attempts
+            if remaining > 0:
+                self.status_label.config(
+                    text=f"Неверный логин или пароль. Осталось попыток: {remaining}",
+                    foreground='red'
+                )
+            else:
+                # Если попытки закончились, показываем сообщение о блокировке
+                self.status_label.config(
+                    text=f"Слишком много неудачных попыток. Попробуйте через 5 минут.",
+                    foreground='red'
+                )
             self.password_var.set('')
             self.password_entry.delete(0, tk.END)
             self.login_entry.focus()

@@ -10,6 +10,8 @@ from datetime import datetime
 from database.config import DB_NAME, BACKUP_DIR, DB_PATH, DATA_DIR, BACKUP_DIR_PATH, ensure_data_dir
 from database.security import log_action
 
+SCHEMA_VERSION = 2
+
 def get_connection():
     """
     Создаёт и возвращает соединение с базой данных.
@@ -26,6 +28,118 @@ def get_connection():
     conn.row_factory = sqlite3.Row
     
     return conn
+
+def get_schema_version(conn):
+    """Получает текущую версию схемы БД"""
+    try:
+        cursor = conn.execute("SELECT version FROM schema_version ORDER BY id DESC LIMIT 1")
+        result = cursor.fetchone()
+        return result['version'] if result else 0
+    except sqlite3.OperationalError:
+        # Таблица schema_version не существует
+        return 0
+
+def set_schema_version(conn, version):
+    """Устанавливает версию схемы БД"""
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS schema_version (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version INTEGER NOT NULL,
+            migrated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
+    conn.commit()
+
+def migrate_database(conn, current_version):
+    """Выполняет миграции БД"""
+    if current_version < 1:
+        # Миграция до версии 1 - добавление колонок
+        try:
+            conn.execute("ALTER TABLE appointments ADD COLUMN created_by TEXT")
+            log_action("MIGRATION", "Added column created_by to appointments")
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            conn.execute("ALTER TABLE appointments ADD COLUMN cancelled_by TEXT")
+            log_action("MIGRATION", "Added column cancelled_by to appointments")
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            conn.execute("ALTER TABLE doctors ADD COLUMN user_id INTEGER")
+            log_action("MIGRATION", "Added column user_id to doctors")
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            conn.execute("ALTER TABLE doctors ADD COLUMN is_deleted INTEGER DEFAULT 0")
+            log_action("MIGRATION", "Added column is_deleted to doctors")
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            conn.execute("ALTER TABLE doctors ADD COLUMN deleted_at TIMESTAMP")
+            log_action("MIGRATION", "Added column deleted_at to doctors")
+        except sqlite3.OperationalError:
+            pass
+        
+        set_schema_version(conn, 1)
+        log_action("MIGRATION", "Database migrated to version 1")
+        current_version = 1
+    
+    if current_version < 2:
+        # Миграция до версии 2 - удаление колонки cancel_reason
+        try:
+            # Проверяем, существует ли колонка cancel_reason
+            cursor = conn.execute("PRAGMA table_info(appointments)")
+            columns = [row['name'] for row in cursor.fetchall()]
+            
+            if 'cancel_reason' in columns:
+                # SQLite не поддерживает DROP COLUMN напрямую, нужно создать новую таблицу
+                conn.execute('''
+                    CREATE TABLE appointments_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        patient_id INTEGER NOT NULL,
+                        doctor_id INTEGER NOT NULL,
+                        date TEXT NOT NULL,
+                        time TEXT NOT NULL,
+                        status TEXT DEFAULT 'запланирован',
+                        created_by TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        cancelled_at TIMESTAMP,
+                        cancelled_by TEXT,
+                        FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+                        FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE,
+                        UNIQUE(doctor_id, date, time)
+                    )
+                ''')
+                
+                # Копируем данные
+                conn.execute('''
+                    INSERT INTO appointments_new 
+                    SELECT id, patient_id, doctor_id, date, time, status, created_by, created_at, cancelled_at, cancelled_by
+                    FROM appointments
+                ''')
+                
+                # Удаляем старую таблицу
+                conn.execute("DROP TABLE appointments")
+                
+                # Переименовываем новую
+                conn.execute("ALTER TABLE appointments_new RENAME TO appointments")
+                
+                # Восстанавливаем индексы
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(date)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_doctor ON appointments(doctor_id)")
+                
+                log_action("MIGRATION", "Removed column cancel_reason from appointments")
+        except sqlite3.OperationalError as e:
+            log_action("MIGRATION_ERROR", f"Error removing cancel_reason: {str(e)}")
+        
+        set_schema_version(conn, 2)
+        log_action("MIGRATION", "Database migrated to version 2")
 
 def verify_database_integrity():
     """
@@ -148,6 +262,8 @@ def init_db():
                     specialty TEXT,
                     room_number TEXT,
                     user_id INTEGER,
+                    is_deleted INTEGER DEFAULT 0,
+                    deleted_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 )
@@ -185,25 +301,6 @@ def init_db():
             ''')
             print("  - Таблица 'appointments' готова")
             
-            # Добавляем колонки если их нет (для обновления существующей БД)
-            try:
-                cursor.execute("ALTER TABLE appointments ADD COLUMN created_by TEXT")
-                print("  - Добавлена колонка created_by")
-            except sqlite3.OperationalError:
-                pass
-            
-            try:
-                cursor.execute("ALTER TABLE appointments ADD COLUMN cancelled_by TEXT")
-                print("  - Добавлена колонка cancelled_by")
-            except sqlite3.OperationalError:
-                pass
-            
-            try:
-                cursor.execute("ALTER TABLE doctors ADD COLUMN user_id INTEGER")
-                print("  - Добавлена колонка user_id в doctors")
-            except sqlite3.OperationalError:
-                pass
-            
             # Индексы
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_patients_name ON patients(full_name)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_patients_policy ON patients(policy_number)')
@@ -211,6 +308,7 @@ def init_db():
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_appointments_doctor ON appointments(doctor_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_doctors_deleted ON doctors(is_deleted)')
             print("  - Индексы созданы")
             
             # Проверяем и создаем начальных пользователей
@@ -235,7 +333,7 @@ def init_db():
                 log_action("INIT", f"Added {len(users_data)} default users")
             
             # Проверяем и создаем начальных врачей (без привязки к пользователям)
-            cursor.execute("SELECT COUNT(*) as count FROM doctors")
+            cursor.execute("SELECT COUNT(*) as count FROM doctors WHERE is_deleted = 0")
             result = cursor.fetchone()
             
             if result and result['count'] == 0:
@@ -255,6 +353,12 @@ def init_db():
                 log_action("INIT", f"Added {len(doctors_data)} default doctors")
             
             conn.commit()
+            
+            # Выполняем миграции
+            current_version = get_schema_version(conn)
+            if current_version < SCHEMA_VERSION:
+                print(f"  - Обновление схемы с версии {current_version} до {SCHEMA_VERSION}")
+                migrate_database(conn, current_version)
             
             if db_exists:
                 print("База данных успешно подключена")

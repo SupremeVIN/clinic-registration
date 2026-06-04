@@ -5,7 +5,7 @@
 import re
 import hashlib
 import logging
-from database.config import AUDIT_LOG_PATH, SALT, ensure_data_dir
+from database.config import AUDIT_LOG_PATH, get_salt, ensure_data_dir
 
 # Создаём директорию для данных перед настройкой логирования
 ensure_data_dir()
@@ -41,6 +41,7 @@ def hash_sensitive_data(data):
     """
     if not data:
         return None
+    SALT = get_salt()
     salted = data + SALT
     return hashlib.sha256(salted.encode()).hexdigest()[:16]
 

@@ -277,10 +277,10 @@ class UsersTabMixin:
                         error_label.config(text="Ошибка при создании врача (возможно, кабинет занят)")
                         return
                 
+                # Не показываем пароль в сообщении об успехе!
                 messagebox.showinfo("Успех", 
                                    f"Пользователь добавлен (ID: {user_id})\n\n"
                                    f"Логин: {username}\n"
-                                   f"Пароль: {password}\n"
                                    f"Роль: {'Врач' if role == 'doctor' else 'Регистратор'}")
                 self.load_users()
                 # Обновляем списки врачей в других вкладках
@@ -299,7 +299,7 @@ class UsersTabMixin:
         ttk.Button(button_frame, text="Отмена", command=dialog.destroy, width=15).pack(side='left', padx=5)
     
     def reset_user_password(self):
-        """Сброс пароля пользователя"""
+        """Сброс пароля пользователя (без отображения пароля на экране)"""
         import database as db
         
         selection = self.users_tree.selection()
@@ -313,19 +313,33 @@ class UsersTabMixin:
         
         dialog = tk.Toplevel(self.root)
         dialog.title("Сброс пароля")
-        dialog.geometry("400x250")
+        dialog.geometry("400x280")
         dialog.transient(self.root)
         dialog.grab_set()
         
         ttk.Label(dialog, text=f"Пользователь: {username}", font=('Arial', 10, 'bold')).pack(pady=10)
         
-        ttk.Label(dialog, text="Новый пароль:").pack(pady=5)
+        ttk.Label(dialog, text="Новый пароль:", font=('Arial', 10)).pack(pady=5)
         password_entry = ttk.Entry(dialog, width=30, show='•')
         password_entry.pack(pady=5)
         
-        ttk.Label(dialog, text="Подтверждение пароля:").pack(pady=5)
+        ttk.Label(dialog, text="Подтверждение пароля:", font=('Arial', 10)).pack(pady=5)
         confirm_entry = ttk.Entry(dialog, width=30, show='•')
         confirm_entry.pack(pady=5)
+        
+        # Генерация пароля (без отображения)
+        def generate_and_set():
+            import secrets
+            import string
+            alphabet = string.ascii_letters + string.digits
+            password = ''.join(secrets.choice(alphabet) for _ in range(10))
+            password_entry.delete(0, tk.END)
+            password_entry.insert(0, password)
+            confirm_entry.delete(0, tk.END)
+            confirm_entry.insert(0, password)
+        
+        generate_btn = ttk.Button(dialog, text="Сгенерировать пароль", command=generate_and_set)
+        generate_btn.pack(pady=5)
         
         error_label = ttk.Label(dialog, text="", foreground='red')
         error_label.pack(pady=5)
@@ -350,7 +364,8 @@ class UsersTabMixin:
                 return
             
             if db.update_user_password(user_id, new_password):
-                messagebox.showinfo("Успех", f"Пароль для {username} изменён на: {new_password}")
+                # Не показываем пароль в сообщении!
+                messagebox.showinfo("Успех", f"Пароль для пользователя {username} успешно изменён")
                 dialog.destroy()
                 self.update_status(f"Пароль изменён для {username}")
             else:
