@@ -4,8 +4,6 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-import random
-import string
 
 class UsersTabMixin:
     """
@@ -111,7 +109,7 @@ class UsersTabMixin:
         
         dialog = tk.Toplevel(self.root)
         dialog.title("Добавление пользователя")
-        dialog.geometry("500x550")
+        dialog.geometry("500x600")
         dialog.transient(self.root)
         dialog.grab_set()
         
@@ -202,27 +200,18 @@ class UsersTabMixin:
         ttk.Label(main_frame, text="Пароль:", font=('Arial', 10)).grid(
             row=4, column=0, padx=10, pady=10, sticky='w'
         )
-        password_frame = ttk.Frame(main_frame)
-        password_frame.grid(row=4, column=1, padx=10, pady=10, sticky='w')
+        password_entry = ttk.Entry(main_frame, width=30, show='•')
+        password_entry.grid(row=4, column=1, padx=10, pady=10, sticky='w')
         
-        password_entry = ttk.Entry(password_frame, width=20, show='•')
-        password_entry.pack(side='left')
-        
-        def generate_password():
-            chars = string.ascii_letters + string.digits
-            password = ''.join(random.choice(chars) for _ in range(8))
-            password_entry.delete(0, tk.END)
-            password_entry.insert(0, password)
-        
-        ttk.Button(
-            password_frame,
-            text="Сгенерировать",
-            command=generate_password,
-            width=12
-        ).pack(side='left', padx=5)
+        # Подтверждение пароля
+        ttk.Label(main_frame, text="Подтверждение пароля:", font=('Arial', 10)).grid(
+            row=5, column=0, padx=10, pady=10, sticky='w'
+        )
+        confirm_password_entry = ttk.Entry(main_frame, width=30, show='•')
+        confirm_password_entry.grid(row=5, column=1, padx=10, pady=10, sticky='w')
         
         error_label = ttk.Label(main_frame, text="", foreground='red')
-        error_label.grid(row=5, column=0, columnspan=2, pady=5)
+        error_label.grid(row=6, column=0, columnspan=2, pady=5)
         
         def on_role_change(*args):
             if role_var.get() == 'doctor':
@@ -237,11 +226,19 @@ class UsersTabMixin:
             fullname = fullname_entry.get().strip()
             role = role_var.get()
             password = password_entry.get().strip()
+            confirm_password = confirm_password_entry.get().strip()
             specialty = specialty_entry.get().strip()
             room = room_entry.get().strip()
             
             if not username or not fullname or not password:
                 error_label.config(text="Все поля обязательны для заполнения")
+                return
+            
+            if password != confirm_password:
+                error_label.config(text="Пароли не совпадают")
+                password_entry.delete(0, tk.END)
+                confirm_password_entry.delete(0, tk.END)
+                password_entry.focus()
                 return
             
             if len(username) < 3:
@@ -296,7 +293,7 @@ class UsersTabMixin:
                 error_label.config(text="Ошибка: возможно, такой логин уже существует")
         
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=6, column=0, columnspan=2, pady=20)
+        button_frame.grid(row=7, column=0, columnspan=2, pady=20)
         
         ttk.Button(button_frame, text="Сохранить", command=save_user, width=15).pack(side='left', padx=5)
         ttk.Button(button_frame, text="Отмена", command=dialog.destroy, width=15).pack(side='left', padx=5)
@@ -316,28 +313,40 @@ class UsersTabMixin:
         
         dialog = tk.Toplevel(self.root)
         dialog.title("Сброс пароля")
-        dialog.geometry("400x200")
+        dialog.geometry("400x250")
         dialog.transient(self.root)
         dialog.grab_set()
         
         ttk.Label(dialog, text=f"Пользователь: {username}", font=('Arial', 10, 'bold')).pack(pady=10)
-        ttk.Label(dialog, text="Новый пароль:").pack(pady=5)
         
+        ttk.Label(dialog, text="Новый пароль:").pack(pady=5)
         password_entry = ttk.Entry(dialog, width=30, show='•')
         password_entry.pack(pady=5)
         
-        def generate_and_set():
-            chars = string.ascii_letters + string.digits
-            password = ''.join(random.choice(chars) for _ in range(8))
-            password_entry.delete(0, tk.END)
-            password_entry.insert(0, password)
+        ttk.Label(dialog, text="Подтверждение пароля:").pack(pady=5)
+        confirm_entry = ttk.Entry(dialog, width=30, show='•')
+        confirm_entry.pack(pady=5)
         
-        ttk.Button(dialog, text="Сгенерировать", command=generate_and_set).pack(pady=5)
+        error_label = ttk.Label(dialog, text="", foreground='red')
+        error_label.pack(pady=5)
         
         def save_password():
             new_password = password_entry.get().strip()
+            confirm_password = confirm_entry.get().strip()
+            
             if not new_password:
-                messagebox.showerror("Ошибка", "Введите пароль")
+                error_label.config(text="Введите пароль")
+                return
+            
+            if new_password != confirm_password:
+                error_label.config(text="Пароли не совпадают")
+                password_entry.delete(0, tk.END)
+                confirm_entry.delete(0, tk.END)
+                password_entry.focus()
+                return
+            
+            if len(new_password) < 4:
+                error_label.config(text="Пароль должен содержать минимум 4 символа")
                 return
             
             if db.update_user_password(user_id, new_password):
@@ -345,7 +354,7 @@ class UsersTabMixin:
                 dialog.destroy()
                 self.update_status(f"Пароль изменён для {username}")
             else:
-                messagebox.showerror("Ошибка", "Не удалось изменить пароль")
+                error_label.config(text="Не удалось изменить пароль")
         
         ttk.Button(dialog, text="Сохранить", command=save_password).pack(pady=10)
     
