@@ -2,11 +2,155 @@
 Функции для работы с записями на приём.
 """
 
+import re
 import sqlite3
 import csv
+import json
+from pathlib import Path
 from datetime import datetime, timedelta
 from database.connection import get_connection
 from database.security import log_action, sanitize_input, validate_date
+from database.doctors import get_doctor_schedule
+
+# Путь к конфигурационному файлу расписания
+CONFIG_DIR = Path(__file__).parent.parent / "config"
+SCHEDULE_CONFIG_FILE = CONFIG_DIR / "schedule.json"
+
+# Значения по умолчанию (если файл конфигурации не найден)
+DEFAULT_SCHEDULE = {
+    'work_start_hour': 9,
+    'work_end_hour': 18,
+    'slot_duration_minutes': 30,
+    'lunch_start_hour': 13,
+    'lunch_end_hour': 14,
+    'break_between_slots': 0,
+    'working_days': [1, 2, 3, 4, 5]  # 1=пн, 5=пт
+}
+
+def ensure_config_dir():
+    """Создаёт директорию конфигурации, если её нет"""
+    CONFIG_DIR.mkdir(exist_ok=True)
+
+def load_schedule_config():
+    """
+    Загружает настройки расписания из JSON файла.
+    
+    Returns:
+        dict: настройки расписания
+    """
+    ensure_config_dir()
+    
+    # Если файла нет - создаём с настройками по умолчанию
+    if not SCHEDULE_CONFIG_FILE.exists():
+        save_schedule_config(DEFAULT_SCHEDULE)
+        log_action("CONFIG", f"Created default schedule config at {SCHEDULE_CONFIG_FILE}")
+        return DEFAULT_SCHEDULE.copy()
+    
+    try:
+        with open(SCHEDULE_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        # Проверяем и дополняем недостающие ключи значениями по умолчанию
+        for key, default_value in DEFAULT_SCHEDULE.items():
+            if key not in config:
+                config[key] = default_value
+        
+        return config
+    except Exception as e:
+        log_action("CONFIG_ERROR", f"Error loading schedule config: {str(e)}")
+        return DEFAULT_SCHEDULE.copy()
+
+def save_schedule_config(config):
+    """
+    Сохраняет настройки расписания в JSON файл.
+    
+    Args:
+        config (dict): настройки расписания
+    
+    Returns:
+        bool: True при успехе
+    """
+    ensure_config_dir()
+    
+    try:
+        with open(SCHEDULE_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
+        log_action("CONFIG", f"Saved schedule config to {SCHEDULE_CONFIG_FILE}")
+        return True
+    except Exception as e:
+        log_action("CONFIG_ERROR", f"Error saving schedule config: {str(e)}")
+        return False
+
+def get_work_schedule(doctor_id=None):
+    """
+    Получает настройки рабочего расписания.
+    Если указан doctor_id и есть индивидуальное расписание - использует его.
+    
+    Args:
+        doctor_id (int): ID врача (опционально)
+    
+    Returns:
+        dict: настройки расписания
+    """
+    if doctor_id:
+        doctor_schedule = get_doctor_schedule(doctor_id)
+        if doctor_schedule and doctor_schedule.get('is_custom'):
+            return doctor_schedule
+    
+    return load_schedule_config()
+
+def is_working_day(date, doctor_id=None):
+    """
+    Проверяет, является ли дата рабочим днём для конкретного врача.
+    
+    Args:
+        date (datetime.date): дата для проверки
+        doctor_id (int): ID врача (опционально)
+    
+    Returns:
+        bool: True если рабочий день
+    """
+    schedule = get_work_schedule(doctor_id)
+    working_days = schedule.get('working_days', [1, 2, 3, 4, 5])
+    # weekday(): 0=пн, 1=вт, 2=ср, 3=чт, 4=пт, 5=сб, 6=вс
+    return (date.weekday() + 1) in working_days
+
+def generate_time_slots(schedule=None, date=None):
+    """
+    Генерирует список временных слотов на основе расписания.
+    
+    Args:
+        schedule (dict): настройки расписания
+        date (datetime.date): дата для проверки рабочих дней
+    
+    Returns:
+        list: список времени в формате HH:MM
+    """
+    if schedule is None:
+        schedule = get_work_schedule()
+    
+    all_times = []
+    start = schedule['work_start_hour']
+    end = schedule['work_end_hour']
+    slot = schedule['slot_duration_minutes']
+    lunch_start = schedule.get('lunch_start_hour')
+    lunch_end = schedule.get('lunch_end_hour')
+    
+    for hour in range(start, end):
+        for minute in range(0, 60, slot):
+            time_str = f"{hour:02d}:{minute:02d}"
+            
+            # Проверяем обеденный перерыв
+            if lunch_start is not None and lunch_end is not None:
+                if lunch_start <= hour < lunch_end:
+                    continue
+                # Если время начала слота до обеда, а конец попадает на обед
+                if hour == lunch_start - 1 and minute + slot > 60:
+                    continue
+            
+            all_times.append(time_str)
+    
+    return all_times
 
 def get_free_time(doctor_id, date):
     """
@@ -25,11 +169,16 @@ def get_free_time(doctor_id, date):
         return []
     
     try:
-        all_times = []
-        for hour in range(9, 18):
-            for minute in [0, 30]:
-                time_str = f"{hour:02d}:{minute:02d}"
-                all_times.append(time_str)
+        date_obj = datetime.strptime(date, '%Y-%m-%d').date()
+        
+        # Получаем расписание для конкретного врача
+        schedule = get_work_schedule(doctor_id)
+        
+        # Проверяем, рабочий ли день для этого врача
+        if not is_working_day(date_obj, doctor_id):
+            return []  # В нерабочий день нет слотов
+        
+        all_times = generate_time_slots(schedule, date_obj)
         
         with get_connection() as conn:
             # Проверяем только запланированные записи (не отменённые)
@@ -45,9 +194,36 @@ def get_free_time(doctor_id, date):
         log_action("DB_ERROR", f"Error getting free time: {str(e)}")
         return []
 
+def check_patient_duplicate(patient_id, doctor_id, date):
+    """
+    Проверяет, нет ли у пациента уже записи к этому врачу на эту дату.
+    
+    Args:
+        patient_id (int): ID пациента
+        doctor_id (int): ID врача
+        date (str): дата
+    
+    Returns:
+        tuple: (bool, str) - (есть ли дубликат, сообщение)
+    """
+    try:
+        with get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT id, time FROM appointments 
+                WHERE patient_id = ? AND doctor_id = ? AND date = ? AND status = 'запланирован'
+            ''', (patient_id, doctor_id, date))
+            existing = cursor.fetchone()
+            
+            if existing:
+                return True, f"У пациента уже есть запись к этому врачу на {date} в {existing['time']}"
+            return False, ""
+    except sqlite3.DatabaseError as e:
+        log_action("DB_ERROR", f"Error checking duplicate: {str(e)}")
+        return False, ""
+
 def add_appointment(patient_id, doctor_id, date, time, created_by=None):
     """
-    Создаёт новую запись на приём.
+    Создаёт новую запись на приём с использованием транзакции.
     
     Args:
         patient_id (int): ID пациента
@@ -64,6 +240,18 @@ def add_appointment(patient_id, doctor_id, date, time, created_by=None):
         log_action("VALIDATION_ERROR", f"Invalid appointment date: {msg}")
         return None
     
+    # Проверка формата времени
+    if not re.match(r'^([0-1][0-9]|2[0-3]):[0-5][0-9]$', time):
+        log_action("VALIDATION_ERROR", f"Invalid time format: {time}")
+        return None
+    
+    # Проверяем, что время входит в рабочие часы для этого врача
+    schedule = get_work_schedule(doctor_id)
+    valid_times = generate_time_slots(schedule)
+    if time not in valid_times:
+        log_action("VALIDATION_ERROR", f"Time {time} outside working hours for doctor {doctor_id}")
+        return None
+    
     try:
         appointment_date = datetime.strptime(date, '%Y-%m-%d').date()
         if appointment_date < datetime.now().date():
@@ -72,19 +260,24 @@ def add_appointment(patient_id, doctor_id, date, time, created_by=None):
     except ValueError:
         return None
     
-    try:
-        with get_connection() as conn:
+    # Используем транзакцию для атомарности операций
+    with get_connection() as conn:
+        # Начинаем транзакцию явно
+        conn.execute("BEGIN TRANSACTION")
+        
+        try:
             patient = conn.execute(
                 "SELECT id FROM patients WHERE id = ?", 
                 (patient_id,)
             ).fetchone()
             doctor = conn.execute(
-                "SELECT id FROM doctors WHERE id = ?", 
+                "SELECT id FROM doctors WHERE id = ? AND is_deleted = 0", 
                 (doctor_id,)
             ).fetchone()
             
             if not patient or not doctor:
                 log_action("VALIDATION_ERROR", f"Invalid patient or doctor ID")
+                conn.execute("ROLLBACK")
                 return None
             
             # Проверяем, есть ли уже запланированная запись на это время
@@ -96,50 +289,55 @@ def add_appointment(patient_id, doctor_id, date, time, created_by=None):
             if existing:
                 log_action("DUPLICATE_APPOINTMENT", 
                           f"Attempt to book occupied slot: doctor {doctor_id} at {date} {time}")
+                conn.execute("ROLLBACK")
                 return None
             
-            cursor = conn.execute('''
-                INSERT INTO appointments (patient_id, doctor_id, date, time, status, created_by)
-                VALUES (?, ?, ?, ?, 'запланирован', ?)
-            ''', (patient_id, doctor_id, date, time, created_by))
-            conn.commit()
+            # НОВАЯ ПРОВЕРКА: Пациент не может записаться к одному врачу дважды в один день
+            has_duplicate, dup_msg = check_patient_duplicate(patient_id, doctor_id, date)
+            if has_duplicate:
+                log_action("DUPLICATE_PATIENT_APPOINTMENT", 
+                          f"Patient {patient_id} already has appointment with doctor {doctor_id} on {date}")
+                conn.execute("ROLLBACK")
+                return None
             
-            appointment_id = cursor.lastrowid
-            log_action("ADD_APPOINTMENT", 
-                      f"Created appointment ID:{appointment_id} for patient:{patient_id} doctor:{doctor_id} by {created_by}")
-            
-            return appointment_id
-    except sqlite3.IntegrityError as e:
-        # Проверяем, что это не конфликт с отменённой записью
-        with get_connection() as conn2:
-            cancelled = conn2.execute('''
+            # Проверяем, есть ли отменённая запись на это время
+            cancelled = conn.execute('''
                 SELECT id FROM appointments 
                 WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'отменён'
             ''', (doctor_id, date, time)).fetchone()
             
             if cancelled:
-                # Если есть отменённая запись, удаляем её и создаём новую
-                conn2.execute("DELETE FROM appointments WHERE id = ?", (cancelled['id'],))
-                conn2.commit()
-                
-                # Создаём новую запись
-                cursor = conn2.execute('''
-                    INSERT INTO appointments (patient_id, doctor_id, date, time, status, created_by)
-                    VALUES (?, ?, ?, ?, 'запланирован', ?)
-                ''', (patient_id, doctor_id, date, time, created_by))
-                conn2.commit()
-                
-                appointment_id = cursor.lastrowid
+                # Если есть отменённая запись, удаляем её
+                conn.execute("DELETE FROM appointments WHERE id = ?", (cancelled['id'],))
+            
+            # Создаём новую запись
+            cursor = conn.execute('''
+                INSERT INTO appointments (patient_id, doctor_id, date, time, status, created_by)
+                VALUES (?, ?, ?, ?, 'запланирован', ?)
+            ''', (patient_id, doctor_id, date, time, created_by))
+            
+            # Фиксируем транзакцию
+            conn.commit()
+            
+            appointment_id = cursor.lastrowid
+            if cancelled:
                 log_action("ADD_APPOINTMENT", 
                           f"Replaced cancelled appointment ID:{cancelled['id']} with new ID:{appointment_id} by {created_by}")
-                return appointment_id
-        
-        log_action("DUPLICATE_APPOINTMENT", 
-                  f"IntegrityError: doctor {doctor_id} at {date} {time} - {str(e)}")
-        return None
-    except sqlite3.DatabaseError as e:
-        log_action("DB_ERROR", f"Error adding appointment: {str(e)}")
-        return None
+            else:
+                log_action("ADD_APPOINTMENT", 
+                          f"Created appointment ID:{appointment_id} for patient:{patient_id} doctor:{doctor_id} by {created_by}")
+            
+            return appointment_id
+            
+        except sqlite3.IntegrityError as e:
+            conn.execute("ROLLBACK")
+            log_action("DUPLICATE_APPOINTMENT", 
+                      f"IntegrityError: doctor {doctor_id} at {date} {time} - {str(e)}")
+            return None
+        except sqlite3.DatabaseError as e:
+            conn.execute("ROLLBACK")
+            log_action("DB_ERROR", f"Error adding appointment: {str(e)}")
+            return None
 
 def get_all_appointments(doctor_id=None, status=None, date_from=None, date_to=None):
     """
@@ -166,7 +364,8 @@ def get_all_appointments(doctor_id=None, status=None, date_from=None, date_to=No
                 a.date,
                 a.time,
                 a.status,
-                a.created_by
+                a.created_by,
+                d.is_deleted as doctor_deleted
             FROM appointments a
             JOIN patients p ON a.patient_id = p.id
             JOIN doctors d ON a.doctor_id = d.id
@@ -303,6 +502,8 @@ def delete_old_appointments(days=30):
         cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
         
         with get_connection() as conn:
+            # Используем транзакцию для атомарного удаления
+            conn.execute("BEGIN TRANSACTION")
             cursor = conn.execute('''
                 DELETE FROM appointments 
                 WHERE date < ?
@@ -343,9 +544,9 @@ def export_data(filepath, data_type='all'):
                 doctors = cursor.fetchall()
                 with open(f"{filepath}_doctors.csv", 'w', encoding='utf-8', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['id', 'full_name', 'specialty', 'room_number', 'created_at'])
+                    writer.writerow(['id', 'full_name', 'specialty', 'room_number', 'created_at', 'is_deleted', 'deleted_at'])
                     for row in doctors:
-                        writer.writerow([row['id'], row['full_name'], row['specialty'], row['room_number'], row['created_at']])
+                        writer.writerow([row['id'], row['full_name'], row['specialty'], row['room_number'], row['created_at'], row['is_deleted'], row['deleted_at']])
                 log_action("EXPORT", f"Exported {len(doctors)} doctors to {filepath}_doctors.csv")
             
             if data_type == 'appointments' or data_type == 'all':

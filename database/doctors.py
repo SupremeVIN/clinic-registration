@@ -3,6 +3,7 @@
 """
 
 import sqlite3
+import json
 from database.connection import get_connection
 from database.security import log_action
 
@@ -27,22 +28,29 @@ def get_all_doctors(include_deleted=False):
         log_action("DB_ERROR", f"Error getting all doctors: {str(e)}")
         return []
 
-def get_doctor_by_id(doctor_id):
+def get_doctor_by_id(doctor_id, include_deleted=False):
     """
     Получает данные врача по ID.
     
     Args:
         doctor_id (int): ID врача
+        include_deleted (bool): включать удаленных врачей
     
     Returns:
         Row: данные врача или None
     """
     try:
         with get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM doctors WHERE id = ?", 
-                (doctor_id,)
-            )
+            if include_deleted:
+                cursor = conn.execute(
+                    "SELECT * FROM doctors WHERE id = ?", 
+                    (doctor_id,)
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT * FROM doctors WHERE id = ? AND is_deleted = 0", 
+                    (doctor_id,)
+                )
             return cursor.fetchone()
     except sqlite3.DatabaseError as e:
         log_action("DB_ERROR", f"Error getting doctor {doctor_id}: {str(e)}")
@@ -144,9 +152,13 @@ def update_doctor(doctor_id, full_name, specialty, room_number):
         log_action("DB_ERROR", f"Error updating doctor: {str(e)}")
         return False
 
-def delete_doctor(doctor_id):
+def delete_doctor(doctor_id, keep_history=True):
     """
-    Мягкое удаление врача (помечаем как удалённого, но сохраняем историю).
+    Удаление врача с возможностью сохранения истории записей.
+    
+    Args:
+        doctor_id (int): ID врача
+        keep_history (bool): сохранять ли исторические записи
     
     Returns:
         dict: результат операции
@@ -163,11 +175,190 @@ def delete_doctor(doctor_id):
             if result and result['count'] > 0:
                 return {'success': False, 'future_appointments': result['count']}
             
-            # Мягкое удаление - помечаем как удалённого
-            conn.execute("UPDATE doctors SET is_deleted = 1, deleted_at = CURRENT_TIMESTAMP WHERE id = ?", (doctor_id,))
+            if keep_history:
+                # Мягкое удаление - помечаем как удалённого
+                conn.execute("""
+                    UPDATE doctors 
+                    SET is_deleted = 1, deleted_at = CURRENT_TIMESTAMP 
+                    WHERE id = ?
+                """, (doctor_id,))
+                
+                # Обновляем будущие записи
+                conn.execute("""
+                    UPDATE appointments 
+                    SET status = 'отменён', 
+                        cancelled_at = CURRENT_TIMESTAMP,
+                        cancelled_by = 'system: врач удалён'
+                    WHERE doctor_id = ? AND date >= date('now') AND status = 'запланирован'
+                """, (doctor_id,))
+                
+                log_action("DELETE_DOCTOR", 
+                          f"Soft deleted doctor ID:{doctor_id} with history preservation")
+            else:
+                # Полное удаление
+                conn.execute("DELETE FROM doctors WHERE id = ?", (doctor_id,))
+                log_action("DELETE_DOCTOR", f"Hard deleted doctor ID:{doctor_id} (history lost)")
+            
             conn.commit()
-            log_action("DELETE_DOCTOR", f"Soft deleted doctor ID:{doctor_id}")
-            return {'success': True}
+            return {'success': True, 'history_preserved': keep_history}
+            
     except sqlite3.DatabaseError as e:
         log_action("DB_ERROR", f"Error deleting doctor: {str(e)}")
         return {'success': False, 'error': str(e)}
+
+def get_doctor_appointments_history(doctor_id, limit=100):
+    """
+    Получает историю записей врача (включая удалённого).
+    
+    Args:
+        doctor_id (int): ID врача
+        limit (int): максимальное количество записей
+    
+    Returns:
+        list: список записей
+    """
+    try:
+        with get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT 
+                    a.id, a.date, a.time, a.status,
+                    p.full_name as patient_name,
+                    p.policy_number
+                FROM appointments a
+                JOIN patients p ON a.patient_id = p.id
+                WHERE a.doctor_id = ?
+                ORDER BY a.date DESC, a.time DESC
+                LIMIT ?
+            ''', (doctor_id, limit))
+            return cursor.fetchall()
+    except sqlite3.DatabaseError as e:
+        log_action("DB_ERROR", f"Error getting doctor history: {str(e)}")
+        return []
+
+# ============================================
+# ФУНКЦИИ ДЛЯ РАБОТЫ С ИНДИВИДУАЛЬНЫМ РАСПИСАНИЕМ ВРАЧА
+# ============================================
+
+def get_doctor_schedule(doctor_id):
+    """
+    Получает индивидуальное расписание врача.
+    
+    Args:
+        doctor_id (int): ID врача
+    
+    Returns:
+        dict: настройки расписания или None если не задано
+    """
+    try:
+        with get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT * FROM doctor_schedules WHERE doctor_id = ?
+            ''', (doctor_id,))
+            row = cursor.fetchone()
+            
+            if row:
+                return {
+                    'work_start_hour': row['work_start_hour'],
+                    'work_end_hour': row['work_end_hour'],
+                    'slot_duration_minutes': row['slot_duration_minutes'],
+                    'lunch_start_hour': row['lunch_start_hour'],
+                    'lunch_end_hour': row['lunch_end_hour'],
+                    'break_between_slots': row['break_between_slots'],
+                    'working_days': json.loads(row['working_days']),
+                    'is_custom': row['is_custom']
+                }
+            return None
+    except sqlite3.DatabaseError as e:
+        log_action("DB_ERROR", f"Error getting doctor schedule: {str(e)}")
+        return None
+
+def save_doctor_schedule(doctor_id, schedule):
+    """
+    Сохраняет индивидуальное расписание врача.
+    
+    Args:
+        doctor_id (int): ID врача
+        schedule (dict): настройки расписания
+    
+    Returns:
+        bool: True при успехе
+    """
+    try:
+        with get_connection() as conn:
+            # Проверяем, существует ли уже запись
+            existing = conn.execute(
+                "SELECT id FROM doctor_schedules WHERE doctor_id = ?",
+                (doctor_id,)
+            ).fetchone()
+            
+            working_days_json = json.dumps(schedule.get('working_days', [1,2,3,4,5]))
+            
+            if existing:
+                conn.execute('''
+                    UPDATE doctor_schedules 
+                    SET work_start_hour = ?,
+                        work_end_hour = ?,
+                        slot_duration_minutes = ?,
+                        lunch_start_hour = ?,
+                        lunch_end_hour = ?,
+                        break_between_slots = ?,
+                        working_days = ?,
+                        is_custom = 1,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE doctor_id = ?
+                ''', (
+                    schedule.get('work_start_hour', 9),
+                    schedule.get('work_end_hour', 18),
+                    schedule.get('slot_duration_minutes', 30),
+                    schedule.get('lunch_start_hour'),
+                    schedule.get('lunch_end_hour'),
+                    schedule.get('break_between_slots', 0),
+                    working_days_json,
+                    doctor_id
+                ))
+            else:
+                conn.execute('''
+                    INSERT INTO doctor_schedules 
+                    (doctor_id, work_start_hour, work_end_hour, slot_duration_minutes,
+                     lunch_start_hour, lunch_end_hour, break_between_slots, working_days, is_custom)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                ''', (
+                    doctor_id,
+                    schedule.get('work_start_hour', 9),
+                    schedule.get('work_end_hour', 18),
+                    schedule.get('slot_duration_minutes', 30),
+                    schedule.get('lunch_start_hour'),
+                    schedule.get('lunch_end_hour'),
+                    schedule.get('break_between_slots', 0),
+                    working_days_json
+                ))
+            
+            conn.commit()
+            log_action("SAVE_DOCTOR_SCHEDULE", f"Saved custom schedule for doctor ID:{doctor_id}")
+            return True
+    except sqlite3.DatabaseError as e:
+        log_action("DB_ERROR", f"Error saving doctor schedule: {str(e)}")
+        return False
+
+def delete_doctor_schedule(doctor_id):
+    """
+    Удаляет индивидуальное расписание врача (возврат к общему).
+    
+    Args:
+        doctor_id (int): ID врача
+    
+    Returns:
+        bool: True при успехе
+    """
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "DELETE FROM doctor_schedules WHERE doctor_id = ?",
+                (doctor_id,)
+            )
+            conn.commit()
+            log_action("DELETE_DOCTOR_SCHEDULE", f"Deleted custom schedule for doctor ID:{doctor_id}")
+            return True
+    except sqlite3.DatabaseError as e:
+        log_action("DB_ERROR", f"Error deleting doctor schedule: {str(e)}")
+        return False

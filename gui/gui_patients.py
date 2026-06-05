@@ -5,16 +5,159 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
-from gui.gui_datepicker import DatePicker
+from gui.gui_base_dialog import BaseFormDialog
+
+class PatientDialog(BaseFormDialog):
+    """Диалог добавления/редактирования пациента"""
+    
+    def __init__(self, parent, mode="add", patient=None):
+        self.mode = mode
+        self.patient = patient
+        fields = [
+            ('ФИО', 'full_name', 'entry', None),
+            ('Дата рождения', 'birth_date', 'date', None),
+            ('Телефон', 'phone', 'entry', None),
+            ('Номер полиса', 'policy', 'entry', None)
+        ]
+        super().__init__(
+            parent, 
+            "Редактирование пациента" if mode == "edit" else "Добавление пациента",
+            fields, 500, 420
+        )
+        
+        # Добавляем счетчик для полиса
+        if 'policy' in self.entries:
+            # Уменьшаем ширину поля ввода полиса
+            self.entries['policy'].config(width=20)
+            
+            policy_counter = ttk.Label(
+                self.dialog, text="0/16", foreground='gray', font=('Arial', 8)
+            )
+            policy_counter.place(x=330, y=168)
+            
+            def update_counter(*args):
+                length = len(self.get_value('policy'))
+                policy_counter.config(text=f"{length}/16")
+                if length == 16:
+                    policy_counter.config(foreground='green')
+                else:
+                    policy_counter.config(foreground='gray')
+            
+            self.entries['policy'].bind('<KeyRelease>', update_counter)
+    
+    def create_widgets(self):
+        super().create_widgets()
+        
+        # Если редактирование - заполняем поля
+        if self.mode == "edit" and self.patient:
+            self.set_value('full_name', self.patient['full_name'])
+            self.set_value('birth_date', self.patient['birth_date'])
+            self.set_value('phone', self.patient['phone'])
+            self.set_value('policy', self.patient['policy_number'])
+            self.disable_field('policy')
+            
+            # Обновляем счетчик
+            length = len(self.patient['policy_number'] or '')
+            for widget in self.dialog.winfo_children():
+                if isinstance(widget, ttk.Label) and widget.cget('text') == f"{length}/16":
+                    widget.config(text=f"{length}/16", foreground='green')
+    
+    def show_calendar(self, entry):
+        """Показывает календарь с ограничением на будущие даты"""
+        from gui.gui_datepicker import DatePicker
+        from datetime import datetime
+        
+        calendar_window = tk.Toplevel(self.dialog)
+        calendar_window.title("Выберите дату")
+        calendar_window.geometry("300x350")
+        calendar_window.transient(self.dialog)
+        calendar_window.grab_set()
+        
+        def on_date_selected(date_str):
+            entry.delete(0, tk.END)
+            entry.insert(0, date_str)
+        
+        date_picker = DatePicker(
+            calendar_window,
+            initial_date=entry.get() or datetime.now().strftime('%Y-%m-%d'),
+            callback=on_date_selected,
+            max_date=datetime.now().date()
+        )
+        date_picker.frame.pack(fill='both', expand=True, padx=10, pady=10)
+    
+    def validate(self):
+        import re
+        import database as db
+        from datetime import datetime
+        
+        name = self.get_value('full_name')
+        birth = self.get_value('birth_date')
+        phone = self.get_value('phone')
+        policy = self.get_value('policy')
+        
+        # Проверка ФИО
+        if not name:
+            self.show_error("Ошибка: ФИО обязательно для заполнения")
+            return False
+        
+        if len(name) < 2:
+            self.show_error("Ошибка: ФИО должно содержать минимум 2 символа")
+            return False
+        
+        # Проверка даты рождения
+        if not birth:
+            self.show_error("Ошибка: Дата рождения обязательна для заполнения")
+            return False
+        
+        try:
+            birth_date = datetime.strptime(birth, '%Y-%m-%d').date()
+            if birth_date > datetime.now().date():
+                self.show_error("Ошибка: Дата рождения не может быть в будущем")
+                return False
+            if birth_date < datetime.now().replace(year=datetime.now().year - 150).date():
+                self.show_error("Ошибка: Слишком старая дата рождения (максимум 150 лет)")
+                return False
+        except ValueError:
+            self.show_error("Ошибка: Неверный формат даты рождения (ГГГГ-ММ-ДД)")
+            return False
+        
+        # Проверка телефона
+        if not phone:
+            self.show_error("Ошибка: Номер телефона обязателен для заполнения")
+            return False
+        
+        phone_clean = re.sub(r'[\s\-\(\)\+]', '', phone)
+        if len(phone_clean) < 10:
+            self.show_error("Ошибка: Номер телефона слишком короткий (минимум 10 цифр)")
+            return False
+        if len(phone_clean) > 15:
+            self.show_error("Ошибка: Номер телефона слишком длинный (максимум 15 цифр)")
+            return False
+        
+        # Проверка полиса (только для добавления)
+        if self.mode == "add":
+            if not policy:
+                self.show_error("Ошибка: Номер полиса обязателен для заполнения")
+                return False
+            if len(policy) != 16:
+                self.show_error("Ошибка: Номер полиса должен содержать ровно 16 цифр")
+                return False
+        
+        return True
+    
+    def get_data(self):
+        return {
+            'full_name': self.get_value('full_name'),
+            'birth_date': self.get_value('birth_date') or None,
+            'phone': self.get_value('phone') or None,
+            'policy': self.get_value('policy')
+        }
+
 
 class PatientsTabMixin:
     """
     Миксин для вкладки пациентов.
     """
-    
-    # ===========================================
-    # ВКЛАДКА "ПАЦИЕНТЫ"
-    # ===========================================
     
     def create_patients_tab(self):
         """Создаёт вкладку управления пациентами"""
@@ -144,7 +287,25 @@ class PatientsTabMixin:
     
     def open_add_patient_dialog(self):
         """Открывает диалог добавления пациента"""
-        self.open_patient_dialog(mode="add")
+        import database as db
+        
+        dialog = PatientDialog(self.root, mode="add")
+        result = dialog.show()
+        
+        if result:
+            patient_id = db.add_patient(
+                result['full_name'], 
+                result['birth_date'], 
+                result['phone'], 
+                result['policy']
+            )
+            if patient_id:
+                messagebox.showinfo("Успех", f"Пациент добавлен (ID: {patient_id})")
+                self.load_patients()
+                self.load_stats()
+                self.update_status(f"Добавлен пациент: {result['full_name']}")
+            else:
+                messagebox.showerror("Ошибка", "Не удалось добавить пациента. Возможно, такой номер полиса уже существует.")
     
     def open_edit_patient_dialog(self):
         """Открывает диалог редактирования пациента"""
@@ -160,7 +321,16 @@ class PatientsTabMixin:
         
         patient = db.get_patient_by_id(patient_id)
         if patient:
-            self.open_patient_dialog(mode="edit", patient=patient)
+            dialog = PatientDialog(self.root, mode="edit", patient=patient)
+            result = dialog.show()
+            
+            if result:
+                if db.update_patient(patient_id, result['full_name'], result['birth_date'], result['phone'], result['policy']):
+                    messagebox.showinfo("Успех", "Данные пациента обновлены")
+                    self.load_patients()
+                    self.update_status(f"Обновлён пациент: {result['full_name']}")
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось обновить данные пациента")
         else:
             messagebox.showerror("Ошибка", "Пациент не найден")
     
@@ -197,245 +367,3 @@ class PatientsTabMixin:
                                     f"Количество будущих записей: {result['future_appointments']}")
             else:
                 messagebox.showerror("Ошибка", f"Не удалось удалить пациента: {result.get('error', '')}")
-    
-    def open_patient_dialog(self, mode="add", patient=None):
-        """
-        Универсальный диалог для добавления/редактирования пациента.
-        
-        Args:
-            mode (str): "add" или "edit"
-            patient: данные пациента (для edit)
-        """
-        import database as db
-        
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Редактирование пациента" if mode == "edit" else "Добавление пациента")
-        dialog.geometry("600x480")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        dialog.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
-        y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry(f"+{x}+{y}")
-        
-        # Заголовок с информацией об обязательных полях
-        header_label = ttk.Label(
-            dialog,
-            text="Все поля обязательны для заполнения",
-            font=('Arial', 9, 'italic'),
-            foreground='gray'
-        )
-        header_label.grid(row=0, column=0, columnspan=3, pady=(10, 0))
-        
-        # ФИО
-        ttk.Label(dialog, text="ФИО", font=('Arial', 10)).grid(
-            row=1, column=0, padx=10, pady=10, sticky='w'
-        )
-        
-        name_frame = ttk.Frame(dialog)
-        name_frame.grid(row=1, column=1, padx=10, pady=10, sticky='w')
-        
-        vcmd_name = (dialog.register(self.validate_letters_only), '%P')
-        name_entry = ttk.Entry(name_frame, width=40, validate='key', validatecommand=vcmd_name)
-        name_entry.pack(side='left')
-        name_entry.focus()
-        
-        ttk.Label(name_frame, text="(только буквы)", foreground='gray', font=('Arial', 8)).pack(side='left', padx=5)
-        
-        # Дата рождения
-        ttk.Label(dialog, text="Дата рождения", font=('Arial', 10)).grid(
-            row=2, column=0, padx=10, pady=10, sticky='w'
-        )
-        
-        birth_frame = ttk.Frame(dialog)
-        birth_frame.grid(row=2, column=1, padx=10, pady=10, sticky='w')
-        
-        birth_entry = ttk.Entry(birth_frame, width=15)
-        birth_entry.pack(side='left')
-        
-        ttk.Button(
-            birth_frame,
-            text="📅",
-            width=3,
-            command=lambda: self.show_date_picker(
-                dialog, 
-                birth_entry,
-                max_date=datetime.now().date()
-            )
-        ).pack(side='left', padx=5)
-        
-        ttk.Label(birth_frame, text="ГГГГ-ММ-ДД", foreground='gray', font=('Arial', 8)).pack(side='left')
-        
-        # Телефон
-        ttk.Label(dialog, text="Телефон", font=('Arial', 10)).grid(
-            row=3, column=0, padx=10, pady=10, sticky='w'
-        )
-        
-        phone_frame = ttk.Frame(dialog)
-        phone_frame.grid(row=3, column=1, padx=10, pady=10, sticky='w')
-        
-        vcmd_phone = (dialog.register(self.validate_phone_chars), '%P')
-        phone_entry = ttk.Entry(phone_frame, width=30, validate='key', validatecommand=vcmd_phone)
-        phone_entry.pack(side='left')
-        
-        ttk.Label(phone_frame, text="+7 (999) 123-45-67", foreground='gray', font=('Arial', 8)).pack(side='left', padx=5)
-        
-        # Номер полиса
-        ttk.Label(dialog, text="Номер полиса", font=('Arial', 10)).grid(
-            row=4, column=0, padx=10, pady=10, sticky='w'
-        )
-        
-        policy_frame = ttk.Frame(dialog)
-        policy_frame.grid(row=4, column=1, padx=10, pady=10, sticky='w')
-        
-        vcmd_policy = (dialog.register(self.validate_digits_only), '%P')
-        policy_entry = ttk.Entry(
-            policy_frame, 
-            width=20,
-            validate='key', 
-            validatecommand=vcmd_policy
-        )
-        policy_entry.pack(side='left')
-        
-        policy_counter = ttk.Label(policy_frame, text="0/16", foreground='gray', font=('Arial', 8))
-        policy_counter.pack(side='left', padx=5)
-        
-        def update_policy_counter(*args):
-            length = len(policy_entry.get())
-            policy_counter.config(text=f"{length}/16")
-            if length == 16:
-                policy_counter.config(foreground='green')
-            else:
-                policy_counter.config(foreground='gray')
-        
-        policy_entry.bind('<KeyRelease>', update_policy_counter)
-        
-        if mode == "edit" and patient:
-            name_entry.insert(0, patient['full_name'] or '')
-            birth_entry.insert(0, patient['birth_date'] or '')
-            phone_entry.insert(0, patient['phone'] or '')
-            policy_entry.insert(0, patient['policy_number'] or '')
-            policy_entry.config(state='disabled')
-            update_policy_counter()
-        
-        # Метка для отображения ошибок валидации
-        error_label = ttk.Label(
-            dialog,
-            text="",
-            foreground='red',
-            font=('Arial', 9)
-        )
-        error_label.grid(row=5, column=0, columnspan=2, pady=5)
-        
-        button_frame = ttk.Frame(dialog)
-        button_frame.grid(row=6, column=0, columnspan=2, pady=20)
-        
-        def save_patient():
-            # Очищаем сообщение об ошибке
-            error_label.config(text="")
-            
-            name = name_entry.get().strip()
-            birth = birth_entry.get().strip()
-            phone = phone_entry.get().strip()
-            policy = policy_entry.get().strip()
-            
-            # Проверка ФИО
-            if not name:
-                error_label.config(text="Ошибка: ФИО обязательно для заполнения")
-                name_entry.focus()
-                return
-            
-            if len(name) < 2:
-                error_label.config(text="Ошибка: ФИО должно содержать минимум 2 символа")
-                name_entry.focus()
-                return
-            
-            # Проверка даты рождения
-            if not birth:
-                error_label.config(text="Ошибка: Дата рождения обязательна для заполнения")
-                birth_entry.focus()
-                return
-            
-            try:
-                birth_date = datetime.strptime(birth, '%Y-%m-%d').date()
-                # Проверка, что дата рождения не в будущем
-                if birth_date > datetime.now().date():
-                    error_label.config(text="Ошибка: Дата рождения не может быть в будущем")
-                    birth_entry.focus()
-                    return
-                # Проверка, что пациенту не больше 150 лет
-                if birth_date < datetime.now().replace(year=datetime.now().year - 150).date():
-                    error_label.config(text="Ошибка: Слишком старая дата рождения (максимум 150 лет)")
-                    birth_entry.focus()
-                    return
-            except ValueError:
-                error_label.config(text="Ошибка: Неверный формат даты рождения (ГГГГ-ММ-ДД)")
-                birth_entry.focus()
-                return
-            
-            # Проверка телефона
-            if not phone:
-                error_label.config(text="Ошибка: Номер телефона обязателен для заполнения")
-                phone_entry.focus()
-                return
-            
-            # Очистка телефона от лишних символов для проверки длины
-            import re
-            phone_clean = re.sub(r'[\s\-\(\)\+]', '', phone)
-            if len(phone_clean) < 10:
-                error_label.config(text="Ошибка: Номер телефона слишком короткий (минимум 10 цифр)")
-                phone_entry.focus()
-                return
-            
-            if len(phone_clean) > 15:
-                error_label.config(text="Ошибка: Номер телефона слишком длинный (максимум 15 цифр)")
-                phone_entry.focus()
-                return
-            
-            # Проверка полиса (только для добавления нового пациента)
-            if mode == "add":
-                if not policy:
-                    error_label.config(text="Ошибка: Номер полиса обязателен для заполнения")
-                    policy_entry.focus()
-                    return
-                
-                if len(policy) != 16:
-                    error_label.config(text="Ошибка: Номер полиса должен содержать ровно 16 цифр")
-                    policy_entry.focus()
-                    return
-            
-            # Если все проверки пройдены, сохраняем
-            if mode == "add":
-                patient_id = db.add_patient(name, birth, phone, policy)
-                if patient_id:
-                    messagebox.showinfo("Успех", f"Пациент добавлен (ID: {patient_id})")
-                    self.load_patients()
-                    self.load_stats()
-                    dialog.destroy()
-                    self.update_status(f"Добавлен пациент: {name}")
-                else:
-                    error_label.config(text="Ошибка: Не удалось добавить пациента. Возможно, такой номер полиса уже существует.")
-                    policy_entry.focus()
-            else:
-                if db.update_patient(patient['id'], name, birth, phone, policy):
-                    messagebox.showinfo("Успех", "Данные пациента обновлены")
-                    self.load_patients()
-                    dialog.destroy()
-                    self.update_status(f"Обновлён пациент: {name}")
-                else:
-                    error_label.config(text="Ошибка: Не удалось обновить данные пациента")
-        
-        ttk.Button(
-            button_frame, 
-            text="Сохранить", 
-            command=save_patient, 
-            width=15
-        ).pack(side='left', padx=5)
-        
-        ttk.Button(
-            button_frame, 
-            text="Отмена", 
-            command=dialog.destroy, 
-            width=15
-        ).pack(side='left', padx=5)

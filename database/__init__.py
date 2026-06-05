@@ -9,11 +9,15 @@ from database.patients import (
     get_all_patients, search_patients, add_patient, 
     get_patient_by_id, update_patient, delete_patient
 )
-from database.doctors import get_all_doctors, get_doctor_by_id, check_room_unique, add_doctor, update_doctor, delete_doctor
+from database.doctors import (
+    get_all_doctors, get_doctor_by_id, check_room_unique, add_doctor, 
+    update_doctor, delete_doctor, get_doctor_appointments_history
+)
 from database.appointments import (
     get_free_time, add_appointment, get_all_appointments,
     search_appointments, cancel_appointment, delete_old_appointments,
-    export_data, import_patients_from_csv
+    export_data, import_patients_from_csv, generate_time_slots, 
+    get_work_schedule, save_schedule_config, is_working_day
 )
 from database.users import (
     authenticate, get_all_users, add_user, update_user_password, delete_user,
@@ -31,11 +35,13 @@ __all__ = [
     'get_all_patients', 'search_patients', 'add_patient',
     'get_patient_by_id', 'update_patient', 'delete_patient',
     # Doctors
-    'get_all_doctors', 'get_doctor_by_id', 'check_room_unique', 'add_doctor', 'update_doctor', 'delete_doctor',
+    'get_all_doctors', 'get_doctor_by_id', 'check_room_unique', 'add_doctor', 
+    'update_doctor', 'delete_doctor', 'get_doctor_appointments_history',
     # Appointments
     'get_free_time', 'add_appointment', 'get_all_appointments',
     'search_appointments', 'cancel_appointment', 'delete_old_appointments',
-    'export_data', 'import_patients_from_csv',
+    'export_data', 'import_patients_from_csv', 'generate_time_slots',
+    'get_work_schedule', 'save_schedule_config', 'is_working_day',
     # Users
     'authenticate', 'get_all_users', 'add_user', 'update_user_password', 'delete_user',
     'get_doctor_by_user_id', 'get_doctor_by_full_name',

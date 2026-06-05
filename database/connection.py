@@ -10,7 +10,7 @@ from datetime import datetime
 from database.config import DB_NAME, BACKUP_DIR, DB_PATH, DATA_DIR, BACKUP_DIR_PATH, ensure_data_dir
 from database.security import log_action
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3  # Увеличена версия для миграции
 
 def get_connection():
     """
@@ -111,7 +111,7 @@ def migrate_database(conn, current_version):
                         cancelled_at TIMESTAMP,
                         cancelled_by TEXT,
                         FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
-                        FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE,
+                        FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE SET NULL,
                         UNIQUE(doctor_id, date, time)
                     )
                 ''')
@@ -134,12 +134,69 @@ def migrate_database(conn, current_version):
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_doctor ON appointments(doctor_id)")
                 
-                log_action("MIGRATION", "Removed column cancel_reason from appointments")
+                log_action("MIGRATION", "Removed column cancel_reason from appointments, changed ON DELETE to SET NULL")
         except sqlite3.OperationalError as e:
             log_action("MIGRATION_ERROR", f"Error removing cancel_reason: {str(e)}")
         
         set_schema_version(conn, 2)
         log_action("MIGRATION", "Database migrated to version 2")
+        current_version = 2
+    
+    if current_version < 3:
+        # Миграция до версии 3 - изменение внешнего ключа appointments.doctor_id
+        try:
+            # Проверяем текущий внешний ключ и обновляем
+            cursor = conn.execute("PRAGMA foreign_key_list(appointments)")
+            fk_exists = False
+            for fk in cursor.fetchall():
+                if fk['from'] == 'doctor_id' and fk['to'] == 'doctors' and fk['on_delete'] == 'SET NULL':
+                    fk_exists = True
+                    break
+            
+            if not fk_exists:
+                # Пересоздаём таблицу appointments с правильным внешним ключом
+                conn.execute('''
+                    CREATE TABLE appointments_v3 (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        patient_id INTEGER NOT NULL,
+                        doctor_id INTEGER,
+                        date TEXT NOT NULL,
+                        time TEXT NOT NULL,
+                        status TEXT DEFAULT 'запланирован',
+                        created_by TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        cancelled_at TIMESTAMP,
+                        cancelled_by TEXT,
+                        FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+                        FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE SET NULL,
+                        UNIQUE(doctor_id, date, time)
+                    )
+                ''')
+                
+                # Копируем данные (doctor_id может быть NULL для удалённых врачей)
+                conn.execute('''
+                    INSERT INTO appointments_v3 
+                    SELECT id, patient_id, doctor_id, date, time, status, created_by, created_at, cancelled_at, cancelled_by
+                    FROM appointments
+                ''')
+                
+                # Удаляем старую таблицу
+                conn.execute("DROP TABLE appointments")
+                
+                # Переименовываем новую
+                conn.execute("ALTER TABLE appointments_v3 RENAME TO appointments")
+                
+                # Восстанавливаем индексы
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(date)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_doctor ON appointments(doctor_id)")
+                
+                log_action("MIGRATION", "Changed foreign key ON DELETE to SET NULL for appointments.doctor_id")
+        except sqlite3.OperationalError as e:
+            log_action("MIGRATION_ERROR", f"Error migrating to version 3: {str(e)}")
+        
+        set_schema_version(conn, 3)
+        log_action("MIGRATION", "Database migrated to version 3")
 
 def verify_database_integrity():
     """
@@ -269,7 +326,27 @@ def init_db():
                 )
             ''')
             print("  - Таблица 'doctors' готова")
-            
+
+            # Добавьте после создания таблицы doctors, но до appointments:
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS doctor_schedules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    doctor_id INTEGER NOT NULL UNIQUE,
+                    work_start_hour INTEGER DEFAULT 9,
+                    work_end_hour INTEGER DEFAULT 18,
+                    slot_duration_minutes INTEGER DEFAULT 30,
+                    lunch_start_hour INTEGER,
+                    lunch_end_hour INTEGER,
+                    break_between_slots INTEGER DEFAULT 0,
+                    working_days TEXT DEFAULT '[1,2,3,4,5]',
+                    is_custom INTEGER DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE
+                )
+            ''')
+            print("  - Таблица 'doctor_schedules' готова")
+
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -282,11 +359,12 @@ def init_db():
             ''')
             print("  - Таблица 'users' готова")
             
+            # Исправленная таблица appointments с ON DELETE SET NULL
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS appointments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     patient_id INTEGER NOT NULL,
-                    doctor_id INTEGER NOT NULL,
+                    doctor_id INTEGER,
                     date TEXT NOT NULL,
                     time TEXT NOT NULL,
                     status TEXT DEFAULT 'запланирован',
@@ -295,7 +373,7 @@ def init_db():
                     cancelled_at TIMESTAMP,
                     cancelled_by TEXT,
                     FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
-                    FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE,
+                    FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE SET NULL,
                     UNIQUE(doctor_id, date, time)
                 )
             ''')

@@ -95,6 +95,11 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         file_menu.add_command(label="Очистить кэш Python", command=self.cleanup_python_cache)
         file_menu.add_separator()
         
+        # Добавляем подменю "Настройки"
+        settings_menu = tk.Menu(file_menu, tearoff=0)
+        file_menu.add_cascade(label="Настройки", menu=settings_menu)
+        settings_menu.add_command(label="Расписание работы", command=self.edit_schedule)
+        
         # Подменю импорта/экспорта
         import_export_menu = tk.Menu(file_menu, tearoff=0)
         file_menu.add_cascade(label="Импорт/Экспорт данных", menu=import_export_menu)
@@ -122,6 +127,18 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         help_menu.add_command(label="О программе", command=self.show_about)
         help_menu.add_command(label="Руководство по безопасности", command=self.show_security_guide)
     
+    def edit_schedule(self):
+        """Открывает диалог редактирования расписания"""
+        from gui.gui_schedule import ScheduleDialog
+        
+        if self.user['role'] != 'admin':
+            messagebox.showerror("Доступ запрещён", "Только администратор может изменять расписание")
+            return
+        
+        dialog = ScheduleDialog(self.root)
+        dialog.show()
+        self.update_status("Настройки расписания обновлены")
+    
     def export_all_data(self):
         """Экспорт всех данных"""
         import database as db
@@ -133,7 +150,6 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         )
         
         if filepath:
-            # Убираем расширение для базового имени
             base_path = filepath.rsplit('.', 1)[0]
             
             if db.export_data(base_path, 'all'):
@@ -253,14 +269,12 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
                 # Удаляем __pycache__ папки (кроме тех, что внутри data)
                 for pycache_dir in current_dir.rglob("__pycache__"):
                     if pycache_dir.is_dir():
-                        # Проверяем, не находится ли папка внутри data
                         should_skip = False
                         for parent in pycache_dir.parents:
                             if parent.name in excluded_dirs or parent == DATA_DIR:
                                 should_skip = True
                                 break
                         
-                        # Также проверяем прямой путь
                         if DATA_DIR in pycache_dir.parents:
                             should_skip = True
                         
@@ -287,11 +301,9 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
                                    "Папка data не была затронута.\n"
                                    "Программа будет перезапущена.")
                 
-                # Перезапускаем программу
                 self.root.quit()
                 self.root.destroy()
                 
-                # Запускаем заново
                 import subprocess
                 import sys
                 subprocess.Popen([sys.executable, "main.py"])
@@ -303,7 +315,6 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         """Выход из учетной записи"""
         if messagebox.askyesno("Подтверждение", "Выйти из системы?"):
             self.root.destroy()
-            # Запускаем окно входа заново
             import auth
             login_dialog = auth.LoginDialog()
             user_data = login_dialog.show()
@@ -365,20 +376,17 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
             entry.delete(0, tk.END)
             entry.insert(0, date_str)
         
-        # Создаем окно для календаря
         calendar_window = tk.Toplevel(parent)
         calendar_window.title("Выберите дату")
         calendar_window.geometry("300x350")
         calendar_window.transient(parent)
         calendar_window.grab_set()
         
-        # Центрируем окно
         calendar_window.update_idletasks()
         x = parent.winfo_rootx() + (parent.winfo_width() - calendar_window.winfo_width()) // 2
         y = parent.winfo_rooty() + (parent.winfo_height() - calendar_window.winfo_height()) // 2
         calendar_window.geometry(f"+{x}+{y}")
         
-        # Создаем календарь
         date_picker = DatePicker(
             calendar_window,
             initial_date=entry.get() or datetime.now().strftime('%Y-%m-%d'),
@@ -394,12 +402,10 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
 # ===========================================
 
 if __name__ == "__main__":
-    # Этот код выполняется только при прямом запуске gui_main.py
     print("=" * 60)
     print("ЗАПУСК РЕГИСТРАТУРЫ ПОЛИКЛИНИКИ (РЕЖИМ ТЕСТИРОВАНИЯ)")
     print("=" * 60)
     
-    # Для тестирования создаем тестового пользователя
     test_user = {
         'login': 'admin',
         'role': 'admin',

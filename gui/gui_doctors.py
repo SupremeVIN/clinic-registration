@@ -5,6 +5,170 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
+from gui.gui_base_dialog import BaseFormDialog
+
+class DoctorDialog(BaseFormDialog):
+    """Диалог добавления/редактирования врача"""
+    
+    def __init__(self, parent, mode="add", doctor=None):
+        self.mode = mode
+        self.doctor = doctor
+        fields = [
+            ('ФИО', 'full_name', 'entry', None),
+            ('Специальность', 'specialty', 'entry', None),
+            ('Кабинет', 'room', 'entry', None)
+        ]
+        super().__init__(parent, "Редактирование врача" if mode == "edit" else "Добавление врача", fields, 600, 450)
+    
+    def create_widgets(self):
+        import database as db
+        
+        super().create_widgets()
+        
+        # Заголовок
+        ttk.Label(
+            self.dialog, 
+            text="Данные врача", 
+            font=('Arial', 12, 'bold')
+        ).place(x=20, y=10)
+        
+        # Добавляем валидаторы
+        if 'full_name' in self.entries:
+            vcmd_name = (self.dialog.register(self.validate_doctor_name), '%P')
+            self.entries['full_name'].config(validate='key', validatecommand=vcmd_name)
+        
+        if 'specialty' in self.entries:
+            vcmd_specialty = (self.dialog.register(self.validate_specialty), '%P')
+            self.entries['specialty'].config(validate='key', validatecommand=vcmd_specialty)
+        
+        if 'room' in self.entries:
+            vcmd_room = (self.dialog.register(self.validate_room_number), '%P')
+            self.entries['room'].config(validate='key', validatecommand=vcmd_room)
+        
+        # Счетчик символов для ФИО
+        name_counter = ttk.Label(self.dialog, text="0/100", foreground='gray', font=('Arial', 8))
+        name_counter.place(x=450, y=68)
+        
+        def update_name_counter(*args):
+            length = len(self.get_value('full_name'))
+            name_counter.config(text=f"{length}/100")
+            if length > 100:
+                name_counter.config(foreground='red')
+            elif length >= 2:
+                name_counter.config(foreground='green')
+            else:
+                name_counter.config(foreground='gray')
+        
+        self.entries['full_name'].bind('<KeyRelease>', update_name_counter)
+        
+        # Счетчик символов для специальности
+        specialty_counter = ttk.Label(self.dialog, text="0/50", foreground='gray', font=('Arial', 8))
+        specialty_counter.place(x=450, y=118)
+        
+        def update_specialty_counter(*args):
+            length = len(self.get_value('specialty'))
+            specialty_counter.config(text=f"{length}/50")
+            if length > 50:
+                specialty_counter.config(foreground='red')
+            elif length >= 2:
+                specialty_counter.config(foreground='green')
+            else:
+                specialty_counter.config(foreground='gray')
+        
+        self.entries['specialty'].bind('<KeyRelease>', update_specialty_counter)
+        
+        # Если редактирование - заполняем поля
+        if self.mode == "edit" and self.doctor:
+            self.set_value('full_name', self.doctor['full_name'])
+            self.set_value('specialty', self.doctor['specialty'])
+            self.set_value('room', self.doctor['room_number'])
+            update_name_counter()
+            update_specialty_counter()
+        
+        # Информация о безопасности
+        security_label = ttk.Label(
+            self.dialog, 
+            text="✓ Данные проверяются: буквы в ФИО и специальности, буквы/цифры в кабинете",
+            foreground='green',
+            font=('Arial', 9)
+        )
+        security_label.place(x=20, y=380)
+    
+    @staticmethod
+    def validate_doctor_name(text):
+        """Проверяет, что ФИО содержит только буквы, пробелы, дефисы и точки"""
+        if not text:
+            return True
+        return all(c.isalpha() or c.isspace() or c in '-.' for c in text)
+    
+    @staticmethod
+    def validate_specialty(text):
+        """Проверяет, что специальность содержит только буквы, пробелы, дефисы"""
+        if not text:
+            return True
+        return all(c.isalpha() or c.isspace() or c == '-' for c in text)
+    
+    @staticmethod
+    def validate_room_number(text):
+        """Проверяет, что номер кабинета содержит только цифры и буквы"""
+        if not text:
+            return True
+        return all(c.isdigit() or c.isalpha() for c in text)
+    
+    def validate(self):
+        import database as db
+        
+        name = self.get_value('full_name')
+        specialty = self.get_value('specialty')
+        room = self.get_value('room')
+        
+        if not name:
+            self.show_error("Ошибка: ФИО обязательно для заполнения")
+            return False
+        
+        if not specialty:
+            self.show_error("Ошибка: Специальность обязательна для заполнения")
+            return False
+        
+        if len(name) < 2:
+            self.show_error("Ошибка: ФИО должно содержать минимум 2 символа")
+            return False
+        
+        if len(specialty) < 2:
+            self.show_error("Ошибка: Специальность должна содержать минимум 2 символа")
+            return False
+        
+        if len(name) > 100:
+            self.show_error("Ошибка: ФИО слишком длинное (максимум 100 символов)")
+            return False
+        
+        if len(specialty) > 50:
+            self.show_error("Ошибка: Специальность слишком длинная (максимум 50 символов)")
+            return False
+        
+        if room:
+            if len(room) > 10:
+                self.show_error("Ошибка: Номер кабинета слишком длинный (максимум 10 символов)")
+                return False
+            
+            if self.mode == "add":
+                is_unique, msg = db.check_room_unique(room)
+            else:
+                is_unique, msg = db.check_room_unique(room, self.doctor['id'])
+            
+            if not is_unique:
+                self.show_error(msg)
+                return False
+        
+        return True
+    
+    def get_data(self):
+        return {
+            'full_name': self.get_value('full_name'),
+            'specialty': self.get_value('specialty'),
+            'room_number': self.get_value('room') or None
+        }
+
 
 class DoctorsTabMixin:
     """
@@ -83,7 +247,6 @@ class DoctorsTabMixin:
             
             # Для врача - показываем только его, для остальных - всех
             if self.user['role'] == 'doctor':
-                # Находим врача, привязанного к пользователю
                 doctor = db.get_doctor_by_user_id(self.user['id'])
                 if doctor:
                     doctor_list = [f"{doctor['id']}: {doctor['full_name']} ({doctor['specialty']})"]
@@ -96,7 +259,6 @@ class DoctorsTabMixin:
                     self.doctor_combobox.config(state='disabled')
                     messagebox.showwarning("Предупреждение", "Ваша учетная запись не привязана к врачу. Обратитесь к администратору.")
             else:
-                # Для админа и регистратора - все врачи
                 doctor_list = [f"{d['id']}: {d['full_name']} ({d['specialty']})" for d in doctors]
                 self.doctor_combobox['values'] = doctor_list
                 if doctor_list:
@@ -132,6 +294,13 @@ class DoctorsTabMixin:
         
         ttk.Button(
             top_frame,
+            text="Расписание врача",
+            command=self.open_doctor_schedule_dialog,
+            style='Admin.TButton'
+        ).pack(side='left', padx=2)
+        
+        ttk.Button(
+            top_frame,
             text="Удалить",
             command=self.delete_selected_doctor,
             style='Warning.TButton'
@@ -143,7 +312,6 @@ class DoctorsTabMixin:
             command=self.load_admin_doctors
         ).pack(side='left', padx=2)
         
-        # Таблица врачей для админа
         columns = ('id', 'ФИО', 'Специальность', 'Кабинет')
         self.admin_doctors_tree = ttk.Treeview(
             tab, 
@@ -192,7 +360,25 @@ class DoctorsTabMixin:
     
     def open_add_doctor_dialog(self):
         """Открывает диалог добавления врача"""
-        self.open_doctor_dialog(mode="add")
+        import database as db
+        
+        dialog = DoctorDialog(self.root, mode="add")
+        result = dialog.show()
+        
+        if result:
+            doctor_id = db.add_doctor(
+                result['full_name'],
+                result['specialty'],
+                result['room_number']
+            )
+            if doctor_id:
+                messagebox.showinfo("Успех", f"Врач добавлен (ID: {doctor_id})")
+                self.load_admin_doctors()
+                self.load_doctors()
+                self.load_doctors_to_combobox()
+                self.update_status(f"Добавлен врач: {result['full_name']}")
+            else:
+                messagebox.showerror("Ошибка", "Не удалось добавить врача. Возможно, кабинет уже занят.")
     
     def open_edit_doctor_dialog(self):
         """Открывает диалог редактирования врача"""
@@ -208,12 +394,42 @@ class DoctorsTabMixin:
         
         doctor = db.get_doctor_by_id(doctor_id)
         if doctor:
-            self.open_doctor_dialog(mode="edit", doctor=doctor)
+            dialog = DoctorDialog(self.root, mode="edit", doctor=doctor)
+            result = dialog.show()
+            
+            if result:
+                if db.update_doctor(doctor_id, result['full_name'], result['specialty'], result['room_number']):
+                    messagebox.showinfo("Успех", "Данные врача обновлены")
+                    self.load_admin_doctors()
+                    self.load_doctors()
+                    self.load_doctors_to_combobox()
+                    self.update_status(f"Обновлён врач: {result['full_name']}")
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось обновить данные врача")
         else:
             messagebox.showerror("Ошибка", "Врач не найден")
     
+    def open_doctor_schedule_dialog(self):
+        """Открывает диалог редактирования индивидуального расписания врача"""
+        from gui.gui_doctor_schedule import DoctorScheduleDialog
+        
+        selection = self.admin_doctors_tree.selection()
+        if not selection:
+            messagebox.showwarning("Предупреждение", "Выберите врача для настройки расписания")
+            return
+        
+        item = self.admin_doctors_tree.item(selection[0])
+        doctor_id = item['values'][0]
+        doctor_name = item['values'][1]
+        
+        dialog = DoctorScheduleDialog(self.root, doctor_id, doctor_name)
+        dialog.show()
+        self.update_status(f"Настройки расписания для врача {doctor_name} обновлены")
+        # Обновляем также список врачей для выбора в записи
+        self.load_doctors_to_combobox()
+    
     def delete_selected_doctor(self):
-        """Удаляет выбранного врача"""
+        """Удаляет выбранного врача (с сохранением истории)"""
         import database as db
         
         selection = self.admin_doctors_tree.selection()
@@ -225,319 +441,88 @@ class DoctorsTabMixin:
         doctor_id = item['values'][0]
         doctor_name = item['values'][1]
         
-        if messagebox.askyesno("Подтверждение", 
-                              f"Удалить врача {doctor_name}?\n\n"
-                              "ВНИМАНИЕ:\n"
-                              "Будут удалены все записи к этому врачу!"):
-            
-            try:
-                # Проверяем, есть ли будущие записи у врача
-                with db.get_connection() as conn:
-                    cursor = conn.execute('''
-                        SELECT COUNT(*) as count FROM appointments 
-                        WHERE doctor_id = ? AND date >= date('now') AND status = 'запланирован'
-                    ''', (doctor_id,))
-                    result = cursor.fetchone()
-                    
-                    if result and result['count'] > 0:
-                        if not messagebox.askyesno("Подтверждение", 
-                                                 f"У врача есть {result['count']} будущих записей.\n"
-                                                 "Они также будут удалены.\n\n"
-                                                 "Продолжить?"):
-                            return
-                
-                # Удаляем врача
-                conn.execute("DELETE FROM doctors WHERE id = ?", (doctor_id,))
-                conn.commit()
-                
-                self.load_admin_doctors()
-                self.load_doctors()  # Обновляем обычную таблицу врачей
-                self.load_doctors_to_combobox()  # Обновляем выпадающий список
-                self.update_status(f"Врач {doctor_name} удалён")
-                messagebox.showinfo("Успех", "Врач удалён")
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось удалить врача: {e}")
-                db.log_action("DELETE_DOCTOR_ERROR", f"Error deleting doctor {doctor_id}: {str(e)}")
-    
-    def open_doctor_dialog(self, mode="add", doctor=None):
-        """
-        Диалог для добавления/редактирования врача.
-        
-        Args:
-            mode (str): "add" или "edit"
-            doctor: данные врача (для edit)
-        """
-        import database as db
-        
+        # Показываем диалог с выбором режима удаления
         dialog = tk.Toplevel(self.root)
-        dialog.title("Редактирование врача" if mode == "edit" else "Добавление врача")
-        dialog.geometry("600x450")
+        dialog.title("Удаление врача")
+        dialog.geometry("500x320")
         dialog.transient(self.root)
         dialog.grab_set()
         
+        # Центрируем диалог
         dialog.update_idletasks()
         x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
         y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
         dialog.geometry(f"+{x}+{y}")
         
-        # Заголовок
+        ttk.Label(dialog, text=f"Врач: {doctor_name}", font=('Arial', 12, 'bold')).pack(pady=10)
+        
+        ttk.Label(dialog, text="Выберите режим удаления:", font=('Arial', 10)).pack(pady=5)
+        
+        keep_history = tk.BooleanVar(value=True)
+        
+        ttk.Radiobutton(
+            dialog, 
+            text="Мягкое удаление (рекомендуется) - сохранить историю записей",
+            variable=keep_history, 
+            value=True
+        ).pack(anchor='w', padx=20, pady=5)
+        
         ttk.Label(
             dialog, 
-            text="Данные врача", 
-            font=('Arial', 12, 'bold')
-        ).grid(row=0, column=0, columnspan=3, pady=10)
+            text="  • Врач будет скрыт из списков\n  • Все исторические записи сохранятся\n  • Будущие записи будут отменены",
+            foreground='gray',
+            font=('Arial', 8),
+            justify='left'
+        ).pack(anchor='w', padx=40, pady=2)
         
-        # ФИО
-        ttk.Label(dialog, text="ФИО", font=('Arial', 10)).grid(
-            row=1, column=0, padx=10, pady=10, sticky='w'
-        )
-        
-        name_frame = ttk.Frame(dialog)
-        name_frame.grid(row=1, column=1, padx=10, pady=10, sticky='w')
-        
-        # Валидация для ФИО (только буквы, пробелы, дефис, точка)
-        vcmd_name = (dialog.register(self.validate_doctor_name), '%P')
-        name_entry = ttk.Entry(
-            name_frame, 
-            width=40, 
-            validate='key', 
-            validatecommand=vcmd_name
-        )
-        name_entry.pack(side='left')
-        name_entry.focus()
-        
-        ttk.Label(
-            name_frame, 
-            text="(только буквы, пробелы, дефис, точка)", 
-            foreground='gray', 
-            font=('Arial', 8)
-        ).pack(side='left', padx=5)
-        
-        # Специальность
-        ttk.Label(dialog, text="Специальность", font=('Arial', 10)).grid(
-            row=2, column=0, padx=10, pady=10, sticky='w'
-        )
-        
-        specialty_frame = ttk.Frame(dialog)
-        specialty_frame.grid(row=2, column=1, padx=10, pady=10, sticky='w')
-        
-        # Валидация для специальности (только буквы, пробелы, дефис)
-        vcmd_specialty = (dialog.register(self.validate_specialty), '%P')
-        specialty_entry = ttk.Entry(
-            specialty_frame, 
-            width=40, 
-            validate='key', 
-            validatecommand=vcmd_specialty
-        )
-        specialty_entry.pack(side='left')
-        
-        ttk.Label(
-            specialty_frame, 
-            text="(только буквы, пробелы, дефис)", 
-            foreground='gray', 
-            font=('Arial', 8)
-        ).pack(side='left', padx=5)
-        
-        # Кабинет
-        ttk.Label(dialog, text="Кабинет", font=('Arial', 10)).grid(
-            row=3, column=0, padx=10, pady=10, sticky='w'
-        )
-        
-        room_frame = ttk.Frame(dialog)
-        room_frame.grid(row=3, column=1, padx=10, pady=10, sticky='w')
-        
-        # Валидация для кабинета (цифры и буквы)
-        vcmd_room = (dialog.register(self.validate_room_number), '%P')
-        room_entry = ttk.Entry(
-            room_frame, 
-            width=20, 
-            validate='key', 
-            validatecommand=vcmd_room
-        )
-        room_entry.pack(side='left')
-        
-        ttk.Label(
-            room_frame, 
-            text="(цифры и буквы, например: 101, 12А)", 
-            foreground='gray', 
-            font=('Arial', 8)
-        ).pack(side='left', padx=5)
-        
-        # Счетчик символов для ФИО
-        name_counter = ttk.Label(
-            dialog, 
-            text="0/100", 
-            foreground='gray', 
-            font=('Arial', 8)
-        )
-        name_counter.grid(row=1, column=2, padx=5, sticky='w')
-        
-        def update_name_counter(*args):
-            length = len(name_entry.get())
-            name_counter.config(text=f"{length}/100")
-            if length > 100:
-                name_counter.config(foreground='red')
-            elif length >= 2:
-                name_counter.config(foreground='green')
-            else:
-                name_counter.config(foreground='gray')
-        
-        name_entry.bind('<KeyRelease>', update_name_counter)
-        
-        # Счетчик символов для специальности
-        specialty_counter = ttk.Label(
-            dialog, 
-            text="0/50", 
-            foreground='gray', 
-            font=('Arial', 8)
-        )
-        specialty_counter.grid(row=2, column=2, padx=5, sticky='w')
-        
-        def update_specialty_counter(*args):
-            length = len(specialty_entry.get())
-            specialty_counter.config(text=f"{length}/50")
-            if length > 50:
-                specialty_counter.config(foreground='red')
-            elif length >= 2:
-                specialty_counter.config(foreground='green')
-            else:
-                specialty_counter.config(foreground='gray')
-        
-        specialty_entry.bind('<KeyRelease>', update_specialty_counter)
-        
-        # Метка для ошибок
-        error_label = ttk.Label(
+        ttk.Radiobutton(
             dialog,
-            text="",
+            text="Полное удаление (не рекомендуется) - потеря истории",
+            variable=keep_history,
+            value=False
+        ).pack(anchor='w', padx=20, pady=5)
+        
+        ttk.Label(
+            dialog,
+            text="  • ВНИМАНИЕ: Все записи врача будут удалены!\n  • Восстановление невозможно",
             foreground='red',
-            font=('Arial', 9)
-        )
-        error_label.grid(row=4, column=0, columnspan=3, pady=5)
+            font=('Arial', 8),
+            justify='left'
+        ).pack(anchor='w', padx=40, pady=2)
         
-        # Если режим редактирования - заполняем поля
-        if mode == "edit" and doctor:
-            name_entry.insert(0, doctor['full_name'] or '')
-            specialty_entry.insert(0, doctor['specialty'] or '')
-            room_entry.insert(0, doctor['room_number'] or '')
-            update_name_counter()
-            update_specialty_counter()
+        def confirm_delete():
+            if messagebox.askyesno("Подтверждение", 
+                                  f"Удалить врача {doctor_name}?\n\n"
+                                  f"Режим: {'Мягкое удаление (с сохранением истории)' if keep_history.get() else 'Полное удаление (безвозвратно)'}"):
+                
+                result = db.delete_doctor(doctor_id, keep_history=keep_history.get())
+                
+                if result.get('success'):
+                    self.load_admin_doctors()
+                    self.load_doctors()
+                    self.load_doctors_to_combobox()
+                    self.update_status(f"Врач {doctor_name} удалён")
+                    
+                    if result.get('history_preserved'):
+                        messagebox.showinfo("Успех", 
+                                           f"Врач {doctor_name} удалён\n\n"
+                                           "История записей сохранена.\n"
+                                           "Будущие записи были отменены.")
+                    else:
+                        messagebox.showinfo("Успех", f"Врач {doctor_name} полностью удалён")
+                    
+                    dialog.destroy()
+                elif 'future_appointments' in result:
+                    messagebox.showerror("Ошибка", 
+                                        f"Нельзя удалить врача с будущими записями\n"
+                                        f"Количество будущих записей: {result['future_appointments']}")
+                    dialog.destroy()
+                else:
+                    messagebox.showerror("Ошибка", f"Не удалось удалить врача: {result.get('error', '')}")
+                    dialog.destroy()
         
-        # Информация о безопасности
-        security_label = ttk.Label(
-            dialog, 
-            text="✓ Данные проверяются: буквы в ФИО и специальности, буквы/цифры в кабинете",
-            foreground='green',
-            font=('Arial', 9)
-        )
-        security_label.grid(row=5, column=0, columnspan=3, pady=10)
-        
-        # Кнопки
         button_frame = ttk.Frame(dialog)
-        button_frame.grid(row=6, column=0, columnspan=3, pady=20)
+        button_frame.pack(pady=20)
         
-        def save_doctor():
-            # Очищаем сообщение об ошибке
-            error_label.config(text="")
-            
-            name = name_entry.get().strip()
-            specialty = specialty_entry.get().strip()
-            room = room_entry.get().strip()
-            
-            # Проверка обязательных полей
-            if not name:
-                error_label.config(text="Ошибка: ФИО обязательно для заполнения")
-                name_entry.focus()
-                return
-            
-            if not specialty:
-                error_label.config(text="Ошибка: Специальность обязательна для заполнения")
-                specialty_entry.focus()
-                return
-            
-            # Проверка минимальной длины
-            if len(name) < 2:
-                error_label.config(text="Ошибка: ФИО должно содержать минимум 2 символа")
-                name_entry.focus()
-                return
-            
-            if len(specialty) < 2:
-                error_label.config(text="Ошибка: Специальность должна содержать минимум 2 символа")
-                specialty_entry.focus()
-                return
-            
-            # Проверка максимальной длины
-            if len(name) > 100:
-                error_label.config(text="Ошибка: ФИО слишком длинное (максимум 100 символов)")
-                name_entry.focus()
-                return
-            
-            if len(specialty) > 50:
-                error_label.config(text="Ошибка: Специальность слишком длинная (максимум 50 символов)")
-                specialty_entry.focus()
-                return
-            
-            # Проверка кабинета на уникальность
-            if room:
-                if len(room) > 10:
-                    error_label.config(text="Ошибка: Номер кабинета слишком длинный (максимум 10 символов)")
-                    room_entry.focus()
-                    return
-                
-                # Проверяем, не занят ли кабинет
-                if mode == "add":
-                    is_unique, msg = db.check_room_unique(room)
-                else:
-                    is_unique, msg = db.check_room_unique(room, doctor['id'])
-                
-                if not is_unique:
-                    error_label.config(text=msg)
-                    room_entry.focus()
-                    return
-            
-            try:
-                if mode == "add":
-                    with db.get_connection() as conn:
-                        cursor = conn.execute('''
-                            INSERT INTO doctors (full_name, specialty, room_number)
-                            VALUES (?, ?, ?)
-                        ''', (name, specialty, room if room else None))
-                        conn.commit()
-                        doctor_id = cursor.lastrowid
-                    
-                    messagebox.showinfo("Успех", f"Врач добавлен (ID: {doctor_id})")
-                    db.log_action("ADD_DOCTOR", f"Added doctor ID:{doctor_id}, name:{name}")
-                else:
-                    with db.get_connection() as conn:
-                        conn.execute('''
-                            UPDATE doctors 
-                            SET full_name = ?, specialty = ?, room_number = ?
-                            WHERE id = ?
-                        ''', (name, specialty, room if room else None, doctor['id']))
-                        conn.commit()
-                    
-                    messagebox.showinfo("Успех", "Данные врача обновлены")
-                    db.log_action("UPDATE_DOCTOR", f"Updated doctor ID:{doctor['id']}")
-                
-                # Обновляем все таблицы с врачами
-                self.load_admin_doctors()
-                self.load_doctors()
-                self.load_doctors_to_combobox()
-                dialog.destroy()
-                self.update_status(f"Врач {name} сохранён")
-            except Exception as e:
-                error_label.config(text=f"Ошибка: {str(e)}")
-                db.log_action("DOCTOR_ERROR", f"Error saving doctor: {str(e)}")
-        
-        ttk.Button(
-            button_frame, 
-            text="Сохранить", 
-            command=save_doctor, 
-            width=15
-        ).pack(side='left', padx=5)
-        
-        ttk.Button(
-            button_frame, 
-            text="Отмена", 
-            command=dialog.destroy, 
-            width=15
-        ).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Удалить", command=confirm_delete, style='Warning.TButton').pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side='left', padx=5)
