@@ -18,19 +18,43 @@ class DoctorDialog(BaseFormDialog):
             ('Специальность', 'specialty', 'entry', None),
             ('Кабинет', 'room', 'entry', None)
         ]
-        super().__init__(parent, "Редактирование врача" if mode == "edit" else "Добавление врача", fields, 600, 450)
+        # Увеличим высоту окна для правильного размещения
+        super().__init__(parent, "Редактирование врача" if mode == "edit" else "Добавление врача", fields, 550, 400)
     
     def create_widgets(self):
         import database as db
         
+        # Сначала создаем стандартные виджеты из базового класса
         super().create_widgets()
         
-        # Заголовок
-        ttk.Label(
-            self.dialog, 
-            text="Данные врача", 
-            font=('Arial', 12, 'bold')
-        ).place(x=20, y=10)
+        # Получаем основную рамку (она уже создана в super().create_widgets())
+        # Ищем main_frame среди детей dialog
+        main_frame = None
+        for child in self.dialog.winfo_children():
+            if isinstance(child, ttk.Frame):
+                main_frame = child
+                break
+        
+        if main_frame:
+            # Добавляем заголовок в верхней части, но не перекрывая поля
+            title_label = ttk.Label(
+                main_frame, 
+                text="", 
+                font=('Arial', 12, 'bold')
+            )
+            # Размещаем заголовок над таблицей полей
+            title_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky='w')
+            
+            # Сдвигаем все существующие виджеты вниз
+            # Получаем все строки, которые есть в grid
+            children = main_frame.grid_slaves()
+            for child in children:
+                if child != title_label:
+                    row = int(child.grid_info()['row'])
+                    if row >= 1:  # Сдвигаем на 1 вниз
+                        child.grid(row=row + 1, column=child.grid_info()['column'], 
+                                  padx=child.grid_info()['padx'], pady=child.grid_info()['pady'],
+                                  sticky=child.grid_info()['sticky'])
         
         # Добавляем валидаторы
         if 'full_name' in self.entries:
@@ -46,53 +70,66 @@ class DoctorDialog(BaseFormDialog):
             self.entries['room'].config(validate='key', validatecommand=vcmd_room)
         
         # Счетчик символов для ФИО
-        name_counter = ttk.Label(self.dialog, text="0/100", foreground='gray', font=('Arial', 8))
-        name_counter.place(x=450, y=68)
-        
-        def update_name_counter(*args):
-            length = len(self.get_value('full_name'))
-            name_counter.config(text=f"{length}/100")
-            if length > 100:
-                name_counter.config(foreground='red')
-            elif length >= 2:
-                name_counter.config(foreground='green')
-            else:
-                name_counter.config(foreground='gray')
-        
-        self.entries['full_name'].bind('<KeyRelease>', update_name_counter)
+        # Находим поле full_name и размещаем счетчик рядом
+        full_name_entry = self.entries.get('full_name')
+        if full_name_entry:
+            # Получаем координаты поля
+            full_name_entry.update_idletasks()
+            name_counter = ttk.Label(
+                self.dialog, text="0/100", foreground='gray', font=('Arial', 8)
+            )
+            # Размещаем справа от поля
+            name_counter.place(x=480, y=85)
+            
+            def update_name_counter(*args):
+                length = len(self.get_value('full_name'))
+                name_counter.config(text=f"{length}/100")
+                if length > 100:
+                    name_counter.config(foreground='red')
+                elif length >= 2:
+                    name_counter.config(foreground='green')
+                else:
+                    name_counter.config(foreground='gray')
+            
+            self.entries['full_name'].bind('<KeyRelease>', update_name_counter)
+            # Обновляем счетчик при загрузке
+            self.dialog.after(100, update_name_counter)
         
         # Счетчик символов для специальности
-        specialty_counter = ttk.Label(self.dialog, text="0/50", foreground='gray', font=('Arial', 8))
-        specialty_counter.place(x=450, y=118)
-        
-        def update_specialty_counter(*args):
-            length = len(self.get_value('specialty'))
-            specialty_counter.config(text=f"{length}/50")
-            if length > 50:
-                specialty_counter.config(foreground='red')
-            elif length >= 2:
-                specialty_counter.config(foreground='green')
-            else:
-                specialty_counter.config(foreground='gray')
-        
-        self.entries['specialty'].bind('<KeyRelease>', update_specialty_counter)
+        specialty_entry = self.entries.get('specialty')
+        if specialty_entry:
+            specialty_counter = ttk.Label(
+                self.dialog, text="0/50", foreground='gray', font=('Arial', 8)
+            )
+            specialty_counter.place(x=480, y=135)
+            
+            def update_specialty_counter(*args):
+                length = len(self.get_value('specialty'))
+                specialty_counter.config(text=f"{length}/50")
+                if length > 50:
+                    specialty_counter.config(foreground='red')
+                elif length >= 2:
+                    specialty_counter.config(foreground='green')
+                else:
+                    specialty_counter.config(foreground='gray')
+            
+            self.entries['specialty'].bind('<KeyRelease>', update_specialty_counter)
+            self.dialog.after(100, update_specialty_counter)
         
         # Если редактирование - заполняем поля
         if self.mode == "edit" and self.doctor:
             self.set_value('full_name', self.doctor['full_name'])
             self.set_value('specialty', self.doctor['specialty'])
             self.set_value('room', self.doctor['room_number'])
-            update_name_counter()
-            update_specialty_counter()
         
-        # Информация о безопасности
+        # Информация о безопасности внизу
         security_label = ttk.Label(
             self.dialog, 
             text="✓ Данные проверяются: буквы в ФИО и специальности, буквы/цифры в кабинете",
             foreground='green',
             font=('Arial', 9)
         )
-        security_label.place(x=20, y=380)
+        security_label.place(x=20, y=340)
     
     @staticmethod
     def validate_doctor_name(text):
@@ -279,35 +316,39 @@ class DoctorsTabMixin:
         top_frame = ttk.Frame(tab)
         top_frame.pack(fill='x', padx=5, pady=5)
         
+        # Используем frame для кнопок, чтобы они не налезали
+        buttons_frame = ttk.Frame(top_frame)
+        buttons_frame.pack(side='left')
+        
         ttk.Button(
-            top_frame,
+            buttons_frame,
             text="Добавить врача",
             command=self.open_add_doctor_dialog,
             style='Admin.TButton'
         ).pack(side='left', padx=2)
         
         ttk.Button(
-            top_frame,
+            buttons_frame,
             text="Редактировать",
             command=self.open_edit_doctor_dialog
         ).pack(side='left', padx=2)
         
         ttk.Button(
-            top_frame,
+            buttons_frame,
             text="Расписание врача",
             command=self.open_doctor_schedule_dialog,
             style='Admin.TButton'
         ).pack(side='left', padx=2)
         
         ttk.Button(
-            top_frame,
+            buttons_frame,
             text="Удалить",
             command=self.delete_selected_doctor,
             style='Warning.TButton'
         ).pack(side='left', padx=2)
         
         ttk.Button(
-            top_frame,
+            buttons_frame,
             text="Обновить",
             command=self.load_admin_doctors
         ).pack(side='left', padx=2)
