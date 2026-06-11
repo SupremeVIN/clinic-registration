@@ -22,18 +22,20 @@ class PatientDialog(BaseFormDialog):
         super().__init__(
             parent, 
             "Редактирование пациента" if mode == "edit" else "Добавление пациента",
-            fields, 500, 420
+            fields, 500, 450
         )
+        
+        # Добавляем валидаторы для полей ввода
+        self.setup_validators()
         
         # Добавляем счетчик для полиса
         if 'policy' in self.entries:
-            # Уменьшаем ширину поля ввода полиса
             self.entries['policy'].config(width=20)
             
             policy_counter = ttk.Label(
                 self.dialog, text="0/16", foreground='gray', font=('Arial', 8)
             )
-            policy_counter.place(x=330, y=168)
+            policy_counter.place(x=330, y=198)
             
             def update_counter(*args):
                 length = len(self.get_value('policy'))
@@ -45,6 +47,42 @@ class PatientDialog(BaseFormDialog):
             
             self.entries['policy'].bind('<KeyRelease>', update_counter)
     
+    def setup_validators(self):
+        """Настраивает валидаторы для полей ввода"""
+        
+        # Валидатор для ФИО (только буквы, пробелы, дефис, точка)
+        def validate_full_name(text):
+            if not text:
+                return True
+            # Разрешаем буквы (русские и английские), пробелы, дефис, точку
+            return all(c.isalpha() or c.isspace() or c in '-.' for c in text)
+        
+        # Валидатор для телефона (цифры, +, -, пробелы, скобки)
+        def validate_phone(text):
+            if not text:
+                return True
+            # Разрешаем цифры, +, -, пробелы, (, )
+            return all(c.isdigit() or c in '+ -()' for c in text)
+        
+        # Валидатор для полиса (только цифры)
+        def validate_policy(text):
+            if not text:
+                return True
+            return all(c.isdigit() for c in text)
+        
+        # Применяем валидаторы
+        if 'full_name' in self.entries:
+            vcmd_name = (self.dialog.register(validate_full_name), '%P')
+            self.entries['full_name'].config(validate='key', validatecommand=vcmd_name)
+        
+        if 'phone' in self.entries:
+            vcmd_phone = (self.dialog.register(validate_phone), '%P')
+            self.entries['phone'].config(validate='key', validatecommand=vcmd_phone)
+        
+        if 'policy' in self.entries:
+            vcmd_policy = (self.dialog.register(validate_policy), '%P')
+            self.entries['policy'].config(validate='key', validatecommand=vcmd_policy)
+    
     def create_widgets(self):
         super().create_widgets()
         
@@ -55,12 +93,6 @@ class PatientDialog(BaseFormDialog):
             self.set_value('phone', self.patient['phone'])
             self.set_value('policy', self.patient['policy_number'])
             self.disable_field('policy')
-            
-            # Обновляем счетчик
-            length = len(self.patient['policy_number'] or '')
-            for widget in self.dialog.winfo_children():
-                if isinstance(widget, ttk.Label) and widget.cget('text') == f"{length}/16":
-                    widget.config(text=f"{length}/16", foreground='green')
     
     def show_calendar(self, entry):
         """Показывает календарь с ограничением на будущие даты"""
@@ -104,6 +136,10 @@ class PatientDialog(BaseFormDialog):
             self.show_error("Ошибка: ФИО должно содержать минимум 2 символа")
             return False
         
+        if len(name) > 100:
+            self.show_error("Ошибка: ФИО слишком длинное (максимум 100 символов)")
+            return False
+        
         # Проверка даты рождения
         if not birth:
             self.show_error("Ошибка: Дата рождения обязательна для заполнения")
@@ -121,11 +157,12 @@ class PatientDialog(BaseFormDialog):
             self.show_error("Ошибка: Неверный формат даты рождения (ГГГГ-ММ-ДД)")
             return False
         
-        # Проверка телефона
+        # Проверка телефона (сначала!)
         if not phone:
             self.show_error("Ошибка: Номер телефона обязателен для заполнения")
             return False
         
+        # Очищаем телефон от лишних символов для подсчёта цифр
         phone_clean = re.sub(r'[\s\-\(\)\+]', '', phone)
         if len(phone_clean) < 10:
             self.show_error("Ошибка: Номер телефона слишком короткий (минимум 10 цифр)")

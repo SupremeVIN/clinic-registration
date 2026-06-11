@@ -62,7 +62,7 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         self.create_appointments_tab()
         self.create_stats_tab()
         
-        # Информация о безопасности в строке состояния вместо раздражающего диалога
+        # Информация о безопасности в строке состояния
         self.update_status(f"Добро пожаловать, {self.user['name']}! База данных защищена, все меры безопасности активны.")
     
     def center_window(self):
@@ -103,12 +103,21 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         # Подменю импорта/экспорта
         import_export_menu = tk.Menu(file_menu, tearoff=0)
         file_menu.add_cascade(label="Импорт/Экспорт данных", menu=import_export_menu)
-        import_export_menu.add_command(label="Экспорт всех данных", command=self.export_all_data)
-        import_export_menu.add_command(label="Экспорт пациентов", command=lambda: self.export_data('patients'))
-        import_export_menu.add_command(label="Экспорт врачей", command=lambda: self.export_data('doctors'))
-        import_export_menu.add_command(label="Экспорт записей", command=lambda: self.export_data('appointments'))
-        import_export_menu.add_separator()
-        import_export_menu.add_command(label="Импорт пациентов (CSV)", command=self.import_patients)
+        
+        # Экспорт
+        export_menu = tk.Menu(import_export_menu, tearoff=0)
+        import_export_menu.add_cascade(label="Экспорт", menu=export_menu)
+        export_menu.add_command(label="Все данные", command=self.export_all_data)
+        export_menu.add_command(label="Пациенты", command=lambda: self.export_data('patients'))
+        export_menu.add_command(label="Врачи", command=lambda: self.export_data('doctors'))
+        export_menu.add_command(label="Записи", command=lambda: self.export_data('appointments'))
+        
+        # Импорт
+        import_menu = tk.Menu(import_export_menu, tearoff=0)
+        import_export_menu.add_cascade(label="Импорт", menu=import_menu)
+        import_menu.add_command(label="Пациенты (CSV)", command=self.import_patients)
+        import_menu.add_command(label="Врачи (CSV)", command=self.import_doctors)
+        import_menu.add_command(label="Записи (CSV)", command=self.import_appointments)
         
         file_menu.add_separator()
         file_menu.add_command(label="Создать резервную копию", command=self.create_backup)
@@ -199,8 +208,8 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         
         # Создаем окно прогресса
         progress_window = tk.Toplevel(self.root)
-        progress_window.title("Импорт данных")
-        progress_window.geometry("400x150")
+        progress_window.title("Импорт пациентов")
+        progress_window.geometry("450x200")
         progress_window.transient(self.root)
         progress_window.grab_set()
         
@@ -212,26 +221,27 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         
         ttk.Label(progress_window, text="Импорт пациентов...", font=('Arial', 12)).pack(pady=20)
         
-        progress_bar = ttk.Progressbar(progress_window, mode='indeterminate', length=300)
+        progress_bar = ttk.Progressbar(progress_window, mode='indeterminate', length=350)
         progress_bar.pack(pady=10)
         progress_bar.start()
         
-        status_label = ttk.Label(progress_window, text="Обработка файла...", foreground='gray')
+        status_label = ttk.Label(progress_window, text="Анализ файла...", foreground='gray')
         status_label.pack(pady=10)
         
         def do_import():
             try:
+                status_label.config(text="Импорт данных...")
                 success, count, errors = db.import_patients_from_csv(filepath)
-                self.root.after(0, lambda: self._import_complete(progress_window, success, count, errors))
+                self.root.after(0, lambda: self._import_complete_patients(progress_window, success, count, errors))
             except Exception as e:
-                self.root.after(0, lambda: self._import_complete(progress_window, False, 0, [str(e)]))
+                self.root.after(0, lambda: self._import_complete_patients(progress_window, False, 0, [str(e)]))
         
         thread = threading.Thread(target=do_import)
         thread.daemon = True
         thread.start()
     
-    def _import_complete(self, progress_window, success, count, errors):
-        """Обработка завершения импорта"""
+    def _import_complete_patients(self, progress_window, success, count, errors):
+        """Обработка завершения импорта пациентов"""
         progress_window.destroy()
         
         if success:
@@ -240,9 +250,141 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
             self.load_stats()
             self.update_status(f"Импортировано {count} пациентов")
             if errors:
-                with open("import_errors.log", "w", encoding='utf-8') as f:
+                error_file = "import_errors_patients.log"
+                with open(error_file, "w", encoding='utf-8') as f:
                     f.write("\n".join(errors))
-                messagebox.showwarning("Ошибки импорта", f"Были ошибки при импорте. Подробности в файле import_errors.log")
+                messagebox.showwarning("Ошибки импорта", 
+                    f"Были ошибки при импорте.\nПодробности сохранены в файле:\n{error_file}")
+        else:
+            messagebox.showerror("Ошибка", f"Не удалось импортировать файл:\n{errors[0] if errors else 'Неизвестная ошибка'}")
+    
+    def import_doctors(self):
+        """Импорт врачей из CSV"""
+        import database as db
+        
+        filepath = filedialog.askopenfilename(
+            title="Выберите CSV файл для импорта врачей",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        
+        if not filepath:
+            return
+        
+        if self.user['role'] != 'admin':
+            messagebox.showerror("Доступ запрещён", "Только администратор может импортировать врачей")
+            return
+        
+        progress_window = tk.Toplevel(self.root)
+        progress_window.title("Импорт врачей")
+        progress_window.geometry("450x200")
+        progress_window.transient(self.root)
+        progress_window.grab_set()
+        
+        progress_window.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - progress_window.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - progress_window.winfo_height()) // 2
+        progress_window.geometry(f"+{x}+{y}")
+        
+        ttk.Label(progress_window, text="Импорт врачей...", font=('Arial', 12)).pack(pady=20)
+        
+        progress_bar = ttk.Progressbar(progress_window, mode='indeterminate', length=350)
+        progress_bar.pack(pady=10)
+        progress_bar.start()
+        
+        status_label = ttk.Label(progress_window, text="Анализ файла...", foreground='gray')
+        status_label.pack(pady=10)
+        
+        def do_import():
+            try:
+                status_label.config(text="Импорт данных...")
+                success, count, errors = db.import_doctors_from_csv(filepath)
+                self.root.after(0, lambda: self._import_complete_doctors(progress_window, success, count, errors))
+            except Exception as e:
+                self.root.after(0, lambda: self._import_complete_doctors(progress_window, False, 0, [str(e)]))
+        
+        thread = threading.Thread(target=do_import)
+        thread.daemon = True
+        thread.start()
+    
+    def _import_complete_doctors(self, progress_window, success, count, errors):
+        """Обработка завершения импорта врачей"""
+        progress_window.destroy()
+        
+        if success:
+            messagebox.showinfo("Успех", f"Импортировано врачей: {count}\nОшибок: {len(errors)}")
+            self.load_admin_doctors()
+            self.load_doctors()
+            self.load_doctors_to_combobox()
+            self.load_stats()
+            self.update_status(f"Импортировано {count} врачей")
+            if errors:
+                error_file = "import_errors_doctors.log"
+                with open(error_file, "w", encoding='utf-8') as f:
+                    f.write("\n".join(errors))
+                messagebox.showwarning("Ошибки импорта", 
+                    f"Были ошибки при импорте.\nПодробности сохранены в файле:\n{error_file}")
+        else:
+            messagebox.showerror("Ошибка", f"Не удалось импортировать файл:\n{errors[0] if errors else 'Неизвестная ошибка'}")
+    
+    def import_appointments(self):
+        """Импорт записей из CSV"""
+        import database as db
+        
+        filepath = filedialog.askopenfilename(
+            title="Выберите CSV файл для импорта записей",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        
+        if not filepath:
+            return
+        
+        progress_window = tk.Toplevel(self.root)
+        progress_window.title("Импорт записей")
+        progress_window.geometry("450x200")
+        progress_window.transient(self.root)
+        progress_window.grab_set()
+        
+        progress_window.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - progress_window.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - progress_window.winfo_height()) // 2
+        progress_window.geometry(f"+{x}+{y}")
+        
+        ttk.Label(progress_window, text="Импорт записей...", font=('Arial', 12)).pack(pady=20)
+        
+        progress_bar = ttk.Progressbar(progress_window, mode='indeterminate', length=350)
+        progress_bar.pack(pady=10)
+        progress_bar.start()
+        
+        status_label = ttk.Label(progress_window, text="Анализ файла...", foreground='gray')
+        status_label.pack(pady=10)
+        
+        def do_import():
+            try:
+                status_label.config(text="Импорт данных...")
+                success, count, errors = db.import_appointments_from_csv(filepath)
+                self.root.after(0, lambda: self._import_complete_appointments(progress_window, success, count, errors))
+            except Exception as e:
+                self.root.after(0, lambda: self._import_complete_appointments(progress_window, False, 0, [str(e)]))
+        
+        thread = threading.Thread(target=do_import)
+        thread.daemon = True
+        thread.start()
+    
+    def _import_complete_appointments(self, progress_window, success, count, errors):
+        """Обработка завершения импорта записей"""
+        progress_window.destroy()
+        
+        if success:
+            messagebox.showinfo("Успех", f"Импортировано записей: {count}\nОшибок: {len(errors)}")
+            self.load_appointments()
+            self.load_stats()
+            self.update_status(f"Импортировано {count} записей")
+            if errors:
+                error_file = "import_errors_appointments.log"
+                with open(error_file, "w", encoding='utf-8') as f:
+                    f.write("\n".join(errors))
+                messagebox.showwarning("Ошибки импорта", 
+                    f"Были ошибки при импорте.\nПодробности сохранены в файле:\n{error_file}")
         else:
             messagebox.showerror("Ошибка", f"Не удалось импортировать файл:\n{errors[0] if errors else 'Неизвестная ошибка'}")
     

@@ -10,7 +10,7 @@ from datetime import datetime
 from database.config import DB_NAME, BACKUP_DIR, DB_PATH, DATA_DIR, BACKUP_DIR_PATH, ensure_data_dir
 from database.security import log_action
 
-SCHEMA_VERSION = 3  # Увеличена версия для миграции
+SCHEMA_VERSION = 4  # Увеличена версия для миграции
 
 def get_connection():
     """
@@ -92,12 +92,10 @@ def migrate_database(conn, current_version):
     if current_version < 2:
         # Миграция до версии 2 - удаление колонки cancel_reason
         try:
-            # Проверяем, существует ли колонка cancel_reason
             cursor = conn.execute("PRAGMA table_info(appointments)")
             columns = [row['name'] for row in cursor.fetchall()]
             
             if 'cancel_reason' in columns:
-                # SQLite не поддерживает DROP COLUMN напрямую, нужно создать новую таблицу
                 conn.execute('''
                     CREATE TABLE appointments_new (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,20 +114,14 @@ def migrate_database(conn, current_version):
                     )
                 ''')
                 
-                # Копируем данные
                 conn.execute('''
                     INSERT INTO appointments_new 
                     SELECT id, patient_id, doctor_id, date, time, status, created_by, created_at, cancelled_at, cancelled_by
                     FROM appointments
                 ''')
                 
-                # Удаляем старую таблицу
                 conn.execute("DROP TABLE appointments")
-                
-                # Переименовываем новую
                 conn.execute("ALTER TABLE appointments_new RENAME TO appointments")
-                
-                # Восстанавливаем индексы
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(date)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_doctor ON appointments(doctor_id)")
@@ -143,9 +135,8 @@ def migrate_database(conn, current_version):
         current_version = 2
     
     if current_version < 3:
-        # Миграция до версии 3 - изменение внешнего ключа appointments.doctor_id
+        # Миграция до версии 3 - изменение внешнего ключа
         try:
-            # Проверяем текущий внешний ключ и обновляем
             cursor = conn.execute("PRAGMA foreign_key_list(appointments)")
             fk_exists = False
             for fk in cursor.fetchall():
@@ -154,7 +145,6 @@ def migrate_database(conn, current_version):
                     break
             
             if not fk_exists:
-                # Пересоздаём таблицу appointments с правильным внешним ключом
                 conn.execute('''
                     CREATE TABLE appointments_v3 (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,20 +163,14 @@ def migrate_database(conn, current_version):
                     )
                 ''')
                 
-                # Копируем данные (doctor_id может быть NULL для удалённых врачей)
                 conn.execute('''
                     INSERT INTO appointments_v3 
                     SELECT id, patient_id, doctor_id, date, time, status, created_by, created_at, cancelled_at, cancelled_by
                     FROM appointments
                 ''')
                 
-                # Удаляем старую таблицу
                 conn.execute("DROP TABLE appointments")
-                
-                # Переименовываем новую
                 conn.execute("ALTER TABLE appointments_v3 RENAME TO appointments")
-                
-                # Восстанавливаем индексы
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(date)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_doctor ON appointments(doctor_id)")
@@ -197,6 +181,66 @@ def migrate_database(conn, current_version):
         
         set_schema_version(conn, 3)
         log_action("MIGRATION", "Database migrated to version 3")
+        current_version = 3
+    
+    if current_version < 4:
+        # Миграция до версии 4 - убираем UNIQUE constraint, добавляем частичный уникальный индекс
+        try:
+            # Проверяем, существует ли старый UNIQUE constraint
+            cursor = conn.execute("PRAGMA index_list(appointments)")
+            indexes = [row['name'] for row in cursor.fetchall()]
+            
+            # Удаляем старый UNIQUE constraint если есть
+            if 'sqlite_autoindex_appointments_1' in indexes:
+                # Создаём новую таблицу без UNIQUE constraint
+                conn.execute('''
+                    CREATE TABLE appointments_v4 (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        patient_id INTEGER NOT NULL,
+                        doctor_id INTEGER,
+                        date TEXT NOT NULL,
+                        time TEXT NOT NULL,
+                        status TEXT DEFAULT 'запланирован',
+                        created_by TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        cancelled_at TIMESTAMP,
+                        cancelled_by TEXT,
+                        FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+                        FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE SET NULL
+                    )
+                ''')
+                
+                # Копируем данные
+                conn.execute('''
+                    INSERT INTO appointments_v4 
+                    SELECT id, patient_id, doctor_id, date, time, status, created_by, created_at, cancelled_at, cancelled_by
+                    FROM appointments
+                ''')
+                
+                # Удаляем старую таблицу
+                conn.execute("DROP TABLE appointments")
+                
+                # Переименовываем новую
+                conn.execute("ALTER TABLE appointments_v4 RENAME TO appointments")
+                
+                # Создаём частичный уникальный индекс только для активных записей
+                conn.execute('''
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_appointments 
+                    ON appointments(doctor_id, date, time) 
+                    WHERE status = 'запланирован'
+                ''')
+                
+                # Создаём обычные индексы
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(date)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_appointments_doctor ON appointments(doctor_id)")
+                
+                log_action("MIGRATION", "Removed UNIQUE constraint, added partial unique index for active appointments only")
+        except sqlite3.OperationalError as e:
+            log_action("MIGRATION_ERROR", f"Error migrating to version 4: {str(e)}")
+        
+        set_schema_version(conn, 4)
+        log_action("MIGRATION", "Database migrated to version 4")
 
 def verify_database_integrity():
     """
@@ -327,8 +371,6 @@ def init_db():
             ''')
             print("  - Таблица 'doctors' готова")
 
-            # Добавьте после создания таблицы doctors, но до appointments:
-
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS doctor_schedules (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -359,7 +401,7 @@ def init_db():
             ''')
             print("  - Таблица 'users' готова")
             
-            # Исправленная таблица appointments с ON DELETE SET NULL
+            # Таблица appointments без UNIQUE constraint
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS appointments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -373,8 +415,7 @@ def init_db():
                     cancelled_at TIMESTAMP,
                     cancelled_by TEXT,
                     FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
-                    FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE SET NULL,
-                    UNIQUE(doctor_id, date, time)
+                    FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE SET NULL
                 )
             ''')
             print("  - Таблица 'appointments' готова")
@@ -387,6 +428,13 @@ def init_db():
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_appointments_doctor ON appointments(doctor_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_doctors_deleted ON doctors(is_deleted)')
+            
+            # Частичный уникальный индекс только для активных записей
+            cursor.execute('''
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_appointments 
+                ON appointments(doctor_id, date, time) 
+                WHERE status = 'запланирован'
+            ''')
             print("  - Индексы созданы")
             
             # Проверяем и создаем начальных пользователей
@@ -394,10 +442,8 @@ def init_db():
             result = cursor.fetchone()
             
             if result and result['count'] == 0:
-                # Импортируем функцию хеширования
                 from database.users import hash_password
                 
-                # Создаем пользователей с хешированными паролями
                 users_data = [
                     ('admin', hash_password('admin123'), 'admin', 'Администратор'),
                     ('user', hash_password('user123'), 'registrar', 'Регистратор')
@@ -410,7 +456,7 @@ def init_db():
                 print(f"  - Добавлено {len(users_data)} пользователей")
                 log_action("INIT", f"Added {len(users_data)} default users")
             
-            # Проверяем и создаем начальных врачей (без привязки к пользователям)
+            # Проверяем и создаем начальных врачей
             cursor.execute("SELECT COUNT(*) as count FROM doctors WHERE is_deleted = 0")
             result = cursor.fetchone()
             

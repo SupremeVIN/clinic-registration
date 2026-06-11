@@ -24,7 +24,7 @@ DEFAULT_SCHEDULE = {
     'lunch_start_hour': 13,
     'lunch_end_hour': 14,
     'break_between_slots': 0,
-    'working_days': [1, 2, 3, 4, 5]  # 1=пн, 5=пт
+    'working_days': [1, 2, 3, 4, 5]
 }
 
 def ensure_config_dir():
@@ -32,15 +32,9 @@ def ensure_config_dir():
     CONFIG_DIR.mkdir(exist_ok=True)
 
 def load_schedule_config():
-    """
-    Загружает настройки расписания из JSON файла.
-    
-    Returns:
-        dict: настройки расписания
-    """
+    """Загружает настройки расписания из JSON файла"""
     ensure_config_dir()
     
-    # Если файла нет - создаём с настройками по умолчанию
     if not SCHEDULE_CONFIG_FILE.exists():
         save_schedule_config(DEFAULT_SCHEDULE)
         log_action("CONFIG", f"Created default schedule config at {SCHEDULE_CONFIG_FILE}")
@@ -50,7 +44,6 @@ def load_schedule_config():
         with open(SCHEDULE_CONFIG_FILE, 'r', encoding='utf-8') as f:
             config = json.load(f)
         
-        # Проверяем и дополняем недостающие ключи значениями по умолчанию
         for key, default_value in DEFAULT_SCHEDULE.items():
             if key not in config:
                 config[key] = default_value
@@ -61,15 +54,7 @@ def load_schedule_config():
         return DEFAULT_SCHEDULE.copy()
 
 def save_schedule_config(config):
-    """
-    Сохраняет настройки расписания в JSON файл.
-    
-    Args:
-        config (dict): настройки расписания
-    
-    Returns:
-        bool: True при успехе
-    """
+    """Сохраняет настройки расписания в JSON файл"""
     ensure_config_dir()
     
     try:
@@ -82,16 +67,7 @@ def save_schedule_config(config):
         return False
 
 def get_work_schedule(doctor_id=None):
-    """
-    Получает настройки рабочего расписания.
-    Если указан doctor_id и есть индивидуальное расписание - использует его.
-    
-    Args:
-        doctor_id (int): ID врача (опционально)
-    
-    Returns:
-        dict: настройки расписания
-    """
+    """Получает настройки рабочего расписания"""
     if doctor_id:
         doctor_schedule = get_doctor_schedule(doctor_id)
         if doctor_schedule and doctor_schedule.get('is_custom'):
@@ -100,32 +76,13 @@ def get_work_schedule(doctor_id=None):
     return load_schedule_config()
 
 def is_working_day(date, doctor_id=None):
-    """
-    Проверяет, является ли дата рабочим днём для конкретного врача.
-    
-    Args:
-        date (datetime.date): дата для проверки
-        doctor_id (int): ID врача (опционально)
-    
-    Returns:
-        bool: True если рабочий день
-    """
+    """Проверяет, является ли дата рабочим днём"""
     schedule = get_work_schedule(doctor_id)
     working_days = schedule.get('working_days', [1, 2, 3, 4, 5])
-    # weekday(): 0=пн, 1=вт, 2=ср, 3=чт, 4=пт, 5=сб, 6=вс
     return (date.weekday() + 1) in working_days
 
 def generate_time_slots(schedule=None, date=None):
-    """
-    Генерирует список временных слотов на основе расписания.
-    
-    Args:
-        schedule (dict): настройки расписания
-        date (datetime.date): дата для проверки рабочих дней
-    
-    Returns:
-        list: список времени в формате HH:MM
-    """
+    """Генерирует список временных слотов"""
     if schedule is None:
         schedule = get_work_schedule()
     
@@ -140,11 +97,9 @@ def generate_time_slots(schedule=None, date=None):
         for minute in range(0, 60, slot):
             time_str = f"{hour:02d}:{minute:02d}"
             
-            # Проверяем обеденный перерыв
             if lunch_start is not None and lunch_end is not None:
                 if lunch_start <= hour < lunch_end:
                     continue
-                # Если время начала слота до обеда, а конец попадает на обед
                 if hour == lunch_start - 1 and minute + slot > 60:
                     continue
             
@@ -153,16 +108,7 @@ def generate_time_slots(schedule=None, date=None):
     return all_times
 
 def get_free_time(doctor_id, date):
-    """
-    Возвращает список свободного времени для конкретного врача на указанную дату.
-    
-    Args:
-        doctor_id (int): ID врача
-        date (str): дата в формате ГГГГ-ММ-ДД
-    
-    Returns:
-        list: список свободного времени
-    """
+    """Возвращает список свободного времени"""
     valid, msg = validate_date(date)
     if not valid:
         log_action("VALIDATION_ERROR", f"Invalid date for free time: {msg}")
@@ -171,17 +117,13 @@ def get_free_time(doctor_id, date):
     try:
         date_obj = datetime.strptime(date, '%Y-%m-%d').date()
         
-        # Получаем расписание для конкретного врача
-        schedule = get_work_schedule(doctor_id)
-        
-        # Проверяем, рабочий ли день для этого врача
         if not is_working_day(date_obj, doctor_id):
-            return []  # В нерабочий день нет слотов
+            return []
         
+        schedule = get_work_schedule(doctor_id)
         all_times = generate_time_slots(schedule, date_obj)
         
         with get_connection() as conn:
-            # Проверяем только запланированные записи (не отменённые)
             cursor = conn.execute('''
                 SELECT time FROM appointments 
                 WHERE doctor_id = ? AND date = ? AND status = 'запланирован'
@@ -194,58 +136,17 @@ def get_free_time(doctor_id, date):
         log_action("DB_ERROR", f"Error getting free time: {str(e)}")
         return []
 
-def check_patient_duplicate(patient_id, doctor_id, date):
-    """
-    Проверяет, нет ли у пациента уже записи к этому врачу на эту дату.
-    
-    Args:
-        patient_id (int): ID пациента
-        doctor_id (int): ID врача
-        date (str): дата
-    
-    Returns:
-        tuple: (bool, str) - (есть ли дубликат, сообщение)
-    """
-    try:
-        with get_connection() as conn:
-            cursor = conn.execute('''
-                SELECT id, time FROM appointments 
-                WHERE patient_id = ? AND doctor_id = ? AND date = ? AND status = 'запланирован'
-            ''', (patient_id, doctor_id, date))
-            existing = cursor.fetchone()
-            
-            if existing:
-                return True, f"У пациента уже есть запись к этому врачу на {date} в {existing['time']}"
-            return False, ""
-    except sqlite3.DatabaseError as e:
-        log_action("DB_ERROR", f"Error checking duplicate: {str(e)}")
-        return False, ""
-
 def add_appointment(patient_id, doctor_id, date, time, created_by=None):
-    """
-    Создаёт новую запись на приём с использованием транзакции.
-    
-    Args:
-        patient_id (int): ID пациента
-        doctor_id (int): ID врача
-        date (str): дата приёма
-        time (str): время приёма
-        created_by (str): кто создал запись
-    
-    Returns:
-        int: ID новой записи или None
-    """
+    """Создаёт новую запись на приём"""
     valid, msg = validate_date(date)
     if not valid:
         log_action("VALIDATION_ERROR", f"Invalid appointment date: {msg}")
         return None
     
-    # Проверка формата времени
     if not re.match(r'^([0-1][0-9]|2[0-3]):[0-5][0-9]$', time):
         log_action("VALIDATION_ERROR", f"Invalid time format: {time}")
         return None
     
-    # Проверяем, что время входит в рабочие часы для этого врача
     schedule = get_work_schedule(doctor_id)
     valid_times = generate_time_slots(schedule)
     if time not in valid_times:
@@ -260,9 +161,7 @@ def add_appointment(patient_id, doctor_id, date, time, created_by=None):
     except ValueError:
         return None
     
-    # Используем транзакцию для атомарности операций
     with get_connection() as conn:
-        # Начинаем транзакцию явно
         conn.execute("BEGIN TRANSACTION")
         
         try:
@@ -280,9 +179,8 @@ def add_appointment(patient_id, doctor_id, date, time, created_by=None):
                 conn.execute("ROLLBACK")
                 return None
             
-            # Проверяем, есть ли уже запланированная запись на это время
             existing = conn.execute('''
-                SELECT id, status FROM appointments 
+                SELECT id FROM appointments 
                 WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'запланирован'
             ''', (doctor_id, date, time)).fetchone()
             
@@ -292,47 +190,22 @@ def add_appointment(patient_id, doctor_id, date, time, created_by=None):
                 conn.execute("ROLLBACK")
                 return None
             
-            # НОВАЯ ПРОВЕРКА: Пациент не может записаться к одному врачу дважды в один день
-            has_duplicate, dup_msg = check_patient_duplicate(patient_id, doctor_id, date)
-            if has_duplicate:
-                log_action("DUPLICATE_PATIENT_APPOINTMENT", 
-                          f"Patient {patient_id} already has appointment with doctor {doctor_id} on {date}")
-                conn.execute("ROLLBACK")
-                return None
-            
-            # Проверяем, есть ли отменённая запись на это время
-            cancelled = conn.execute('''
-                SELECT id FROM appointments 
-                WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'отменён'
-            ''', (doctor_id, date, time)).fetchone()
-            
-            if cancelled:
-                # Если есть отменённая запись, удаляем её
-                conn.execute("DELETE FROM appointments WHERE id = ?", (cancelled['id'],))
-            
-            # Создаём новую запись
             cursor = conn.execute('''
                 INSERT INTO appointments (patient_id, doctor_id, date, time, status, created_by)
                 VALUES (?, ?, ?, ?, 'запланирован', ?)
             ''', (patient_id, doctor_id, date, time, created_by))
             
-            # Фиксируем транзакцию
             conn.commit()
             
             appointment_id = cursor.lastrowid
-            if cancelled:
-                log_action("ADD_APPOINTMENT", 
-                          f"Replaced cancelled appointment ID:{cancelled['id']} with new ID:{appointment_id} by {created_by}")
-            else:
-                log_action("ADD_APPOINTMENT", 
-                          f"Created appointment ID:{appointment_id} for patient:{patient_id} doctor:{doctor_id} by {created_by}")
+            log_action("ADD_APPOINTMENT", 
+                      f"Created appointment ID:{appointment_id} for patient:{patient_id} doctor:{doctor_id} by {created_by}")
             
             return appointment_id
             
         except sqlite3.IntegrityError as e:
             conn.execute("ROLLBACK")
-            log_action("DUPLICATE_APPOINTMENT", 
-                      f"IntegrityError: doctor {doctor_id} at {date} {time} - {str(e)}")
+            log_action("DUPLICATE_APPOINTMENT", f"IntegrityError: {str(e)}")
             return None
         except sqlite3.DatabaseError as e:
             conn.execute("ROLLBACK")
@@ -340,18 +213,7 @@ def add_appointment(patient_id, doctor_id, date, time, created_by=None):
             return None
 
 def get_all_appointments(doctor_id=None, status=None, date_from=None, date_to=None):
-    """
-    Возвращает записи на приём с возможностью фильтрации.
-    
-    Args:
-        doctor_id (int): ID врача (опционально)
-        status (str): статус записи (опционально)
-        date_from (str): дата от
-        date_to (str): дата до
-    
-    Returns:
-        list: список записей
-    """
+    """Возвращает записи на приём с фильтрацией"""
     try:
         query = '''
             SELECT 
@@ -365,6 +227,8 @@ def get_all_appointments(doctor_id=None, status=None, date_from=None, date_to=No
                 a.time,
                 a.status,
                 a.created_by,
+                a.cancelled_by,
+                a.cancelled_at,
                 d.is_deleted as doctor_deleted
             FROM appointments a
             JOIN patients p ON a.patient_id = p.id
@@ -399,16 +263,7 @@ def get_all_appointments(doctor_id=None, status=None, date_from=None, date_to=No
         return []
 
 def search_appointments(search_text, doctor_id=None):
-    """
-    Ищет записи по ФИО пациента или номеру полиса.
-    
-    Args:
-        search_text (str): текст для поиска
-        doctor_id (int): ID врача (опционально)
-    
-    Returns:
-        list: список найденных записей
-    """
+    """Ищет записи по ФИО пациента или номеру полиса"""
     search_text = sanitize_input(search_text, 100)
     
     if not search_text or len(search_text) < 2:
@@ -448,16 +303,7 @@ def search_appointments(search_text, doctor_id=None):
         return []
 
 def cancel_appointment(appointment_id, cancelled_by=None):
-    """
-    Отменяет запись на приём.
-    
-    Args:
-        appointment_id (int): ID записи
-        cancelled_by (str): кто отменил запись
-    
-    Returns:
-        bool: True при успехе
-    """
+    """Отменяет запись на приём"""
     try:
         with get_connection() as conn:
             appointment = conn.execute(
@@ -489,28 +335,19 @@ def cancel_appointment(appointment_id, cancelled_by=None):
         return False
 
 def delete_old_appointments(days=30):
-    """
-    Удаляет записи старше указанного количества дней.
-    
-    Args:
-        days (int): количество дней
-    
-    Returns:
-        int: количество удаленных записей
-    """
+    """Удаляет только отменённые записи старше указанного количества дней"""
     try:
         cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
         
         with get_connection() as conn:
-            # Используем транзакцию для атомарного удаления
             conn.execute("BEGIN TRANSACTION")
             cursor = conn.execute('''
                 DELETE FROM appointments 
-                WHERE date < ?
+                WHERE date < ? AND status = 'отменён'
             ''', (cutoff_date,))
             conn.commit()
             deleted_count = cursor.rowcount
-            log_action("CLEANUP", f"Deleted {deleted_count} old appointments")
+            log_action("CLEANUP", f"Deleted {deleted_count} old cancelled appointments")
             return deleted_count
     except sqlite3.DatabaseError as e:
         log_action("DB_ERROR", f"Error deleting old appointments: {str(e)}")
@@ -518,7 +355,7 @@ def delete_old_appointments(days=30):
 
 def export_data(filepath, data_type='all'):
     """
-    Экспортирует данные в CSV файл.
+    Экспортирует данные в CSV файл с правильной кодировкой и форматированием.
     
     Args:
         filepath (str): путь к файлу
@@ -527,46 +364,181 @@ def export_data(filepath, data_type='all'):
     Returns:
         bool: True при успехе
     """
+    def escape_csv_value(value):
+        """Экранирует значение для CSV"""
+        if value is None:
+            return ''
+        value = str(value)
+        if ',' in value or ';' in value or '"' in value or '\n' in value:
+            value = value.replace('"', '""')
+            value = f'"{value}"'
+        return value
+    
+    def format_date(date_str):
+        """Форматирует дату в читаемый вид"""
+        if not date_str:
+            return ''
+        try:
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            return date_obj.strftime('%d.%m.%Y')
+        except:
+            return date_str
+    
+    def format_datetime(dt_str):
+        """Форматирует дату и время"""
+        if not dt_str:
+            return ''
+        try:
+            dt_obj = datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S')
+            return dt_obj.strftime('%d.%m.%Y %H:%M:%S')
+        except:
+            return dt_str
+    
     try:
+        delimiter = ';'
+        
         with get_connection() as conn:
             if data_type == 'patients' or data_type == 'all':
-                cursor = conn.execute("SELECT * FROM patients")
+                cursor = conn.execute('''
+                    SELECT id, full_name, birth_date, phone, policy_number, created_at 
+                    FROM patients ORDER BY id
+                ''')
                 patients = cursor.fetchall()
-                with open(f"{filepath}_patients.csv", 'w', encoding='utf-8', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(['id', 'full_name', 'birth_date', 'phone', 'policy_number', 'created_at'])
+                
+                filepath_patients = f"{filepath}_patients.csv"
+                with open(filepath_patients, 'w', encoding='utf-8-sig', newline='') as f:
+                    writer = csv.writer(f, delimiter=delimiter)
+                    writer.writerow(['ID', 'ФИО', 'Дата рождения', 'Телефон', 'Номер полиса', 'Дата создания'])
+                    
                     for row in patients:
-                        writer.writerow([row['id'], row['full_name'], row['birth_date'], row['phone'], row['policy_number'], row['created_at']])
-                log_action("EXPORT", f"Exported {len(patients)} patients to {filepath}_patients.csv")
+                        writer.writerow([
+                            escape_csv_value(row['id']),
+                            escape_csv_value(row['full_name']),
+                            escape_csv_value(format_date(row['birth_date'])),
+                            escape_csv_value(row['phone']),
+                            escape_csv_value(row['policy_number']),
+                            escape_csv_value(format_datetime(row['created_at']))
+                        ])
+                
+                log_action("EXPORT", f"Exported {len(patients)} patients to {filepath_patients}")
             
             if data_type == 'doctors' or data_type == 'all':
-                cursor = conn.execute("SELECT * FROM doctors")
+                cursor = conn.execute('''
+                    SELECT id, full_name, specialty, room_number, created_at, is_deleted, deleted_at 
+                    FROM doctors ORDER BY id
+                ''')
                 doctors = cursor.fetchall()
-                with open(f"{filepath}_doctors.csv", 'w', encoding='utf-8', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(['id', 'full_name', 'specialty', 'room_number', 'created_at', 'is_deleted', 'deleted_at'])
+                
+                filepath_doctors = f"{filepath}_doctors.csv"
+                with open(filepath_doctors, 'w', encoding='utf-8-sig', newline='') as f:
+                    writer = csv.writer(f, delimiter=delimiter)
+                    writer.writerow(['ID', 'ФИО', 'Специальность', 'Кабинет', 'Дата создания', 'Удалён', 'Дата удаления'])
+                    
                     for row in doctors:
-                        writer.writerow([row['id'], row['full_name'], row['specialty'], row['room_number'], row['created_at'], row['is_deleted'], row['deleted_at']])
-                log_action("EXPORT", f"Exported {len(doctors)} doctors to {filepath}_doctors.csv")
+                        writer.writerow([
+                            escape_csv_value(row['id']),
+                            escape_csv_value(row['full_name']),
+                            escape_csv_value(row['specialty']),
+                            escape_csv_value(row['room_number']),
+                            escape_csv_value(format_datetime(row['created_at'])),
+                            escape_csv_value('Да' if row['is_deleted'] else 'Нет'),
+                            escape_csv_value(format_datetime(row['deleted_at']) if row['deleted_at'] else '')
+                        ])
+                
+                log_action("EXPORT", f"Exported {len(doctors)} doctors to {filepath_doctors}")
             
             if data_type == 'appointments' or data_type == 'all':
-                cursor = conn.execute("SELECT * FROM appointments")
+                cursor = conn.execute('''
+                    SELECT 
+                        a.id, 
+                        p.full_name as patient_name,
+                        p.policy_number,
+                        d.full_name as doctor_name,
+                        d.specialty,
+                        d.room_number,
+                        a.date, 
+                        a.time, 
+                        a.status, 
+                        a.created_by,
+                        a.created_at,
+                        a.cancelled_by,
+                        a.cancelled_at
+                    FROM appointments a
+                    JOIN patients p ON a.patient_id = p.id
+                    JOIN doctors d ON a.doctor_id = d.id
+                    ORDER BY a.date DESC, a.time DESC
+                ''')
                 appointments = cursor.fetchall()
-                with open(f"{filepath}_appointments.csv", 'w', encoding='utf-8', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(['id', 'patient_id', 'doctor_id', 'date', 'time', 'status', 'created_by', 'created_at', 'cancelled_at', 'cancelled_by'])
+                
+                filepath_appointments = f"{filepath}_appointments.csv"
+                with open(filepath_appointments, 'w', encoding='utf-8-sig', newline='') as f:
+                    writer = csv.writer(f, delimiter=delimiter)
+                    writer.writerow([
+                        'ID', 'Пациент', 'Номер полиса', 'Врач', 'Специальность', 
+                        'Кабинет', 'Дата', 'Время', 'Статус', 'Кто создал', 
+                        'Дата создания', 'Кто отменил', 'Дата отмены'
+                    ])
+                    
                     for row in appointments:
-                        writer.writerow([row['id'], row['patient_id'], row['doctor_id'], row['date'], row['time'], row['status'], row['created_by'], row['created_at'], row['cancelled_at'], row['cancelled_by']])
-                log_action("EXPORT", f"Exported {len(appointments)} appointments to {filepath}_appointments.csv")
+                        writer.writerow([
+                            escape_csv_value(row['id']),
+                            escape_csv_value(row['patient_name']),
+                            escape_csv_value(row['policy_number']),
+                            escape_csv_value(row['doctor_name']),
+                            escape_csv_value(row['specialty']),
+                            escape_csv_value(row['room_number']),
+                            escape_csv_value(format_date(row['date'])),
+                            escape_csv_value(row['time']),
+                            escape_csv_value(row['status']),
+                            escape_csv_value(row['created_by']),
+                            escape_csv_value(format_datetime(row['created_at'])),
+                            escape_csv_value(row['cancelled_by']),
+                            escape_csv_value(format_datetime(row['cancelled_at']) if row['cancelled_at'] else '')
+                        ])
+                
+                log_action("EXPORT", f"Exported {len(appointments)} appointments to {filepath_appointments}")
         
         return True
     except Exception as e:
         log_action("EXPORT_ERROR", f"Error exporting data: {str(e)}")
         return False
 
+# ============================================
+# ФУНКЦИИ ДЛЯ ИМПОРТА ДАННЫХ
+# ============================================
+
+def detect_csv_format(filepath):
+    """
+    Определяет формат CSV файла: разделитель, кодировку, заголовки.
+    
+    Args:
+        filepath (str): путь к файлу
+    
+    Returns:
+        tuple: (delimiter, encoding, headers)
+    """
+    delimiters = [';', ',']
+    encodings = ['utf-8-sig', 'utf-8', 'cp1251']
+    
+    for encoding in encodings:
+        for delimiter in delimiters:
+            try:
+                with open(filepath, 'r', encoding=encoding) as f:
+                    sample = f.read(4096)
+                    if delimiter in sample:
+                        f.seek(0)
+                        reader = csv.reader(f, delimiter=delimiter)
+                        first_row = next(reader, [])
+                        if len(first_row) >= 2:  # Хотя бы 2 колонки
+                            return delimiter, encoding, first_row
+            except:
+                continue
+    
+    return ';', 'utf-8-sig', None
+
 def import_patients_from_csv(filepath):
     """
-    Импортирует пациентов из CSV файла.
+    Импортирует пациентов из CSV файла с поддержкой разных форматов.
     
     Args:
         filepath (str): путь к файлу
@@ -578,22 +550,307 @@ def import_patients_from_csv(filepath):
     errors = []
     
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
+        # Определяем формат файла
+        delimiter, encoding, sample_headers = detect_csv_format(filepath)
+        
+        # Словарь соответствия заголовков
+        header_mapping = {
+            'full_name': ['full_name', 'ФИО', 'Full Name', 'Имя', 'Пациент', 'patient_name'],
+            'birth_date': ['birth_date', 'Дата рождения', 'Birth Date', 'Дата', 'Date of birth'],
+            'phone': ['phone', 'Телефон', 'Phone', 'Номер телефона', 'Phone number'],
+            'policy_number': ['policy_number', 'Номер полиса', 'Policy Number', 'Полис', 'Policy']
+        }
+        
+        with open(filepath, 'r', encoding=encoding) as f:
+            reader = csv.DictReader(f, delimiter=delimiter)
+            
+            if not reader.fieldnames:
+                return False, 0, ["Файл не содержит заголовков"]
+            
+            # Определяем, какие колонки есть в файле
+            available_fields = {k.lower(): k for k in reader.fieldnames}
+            
+            # Находим соответствия
+            column_mapping = {}
+            for db_field, possible_names in header_mapping.items():
+                for name in possible_names:
+                    if name.lower() in available_fields:
+                        column_mapping[db_field] = available_fields[name.lower()]
+                        break
+            
+            if 'full_name' not in column_mapping or 'policy_number' not in column_mapping:
+                return False, 0, ["Файл должен содержать колонки: ФИО и Номер полиса"]
+            
+            for row_num, row in enumerate(reader, start=2):
                 try:
+                    full_name = row.get(column_mapping.get('full_name', ''), '').strip()
+                    policy = row.get(column_mapping.get('policy_number', ''), '').strip()
+                    
+                    if not full_name or not policy:
+                        errors.append(f"Строка {row_num}: отсутствует ФИО или номер полиса")
+                        continue
+                    
+                    # Обработка даты рождения
+                    birth_date = row.get(column_mapping.get('birth_date', ''), '').strip()
+                    if birth_date:
+                        # Пробуем разные форматы даты
+                        for date_format in ['%d.%m.%Y', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y']:
+                            try:
+                                date_obj = datetime.strptime(birth_date, date_format)
+                                birth_date = date_obj.strftime('%Y-%m-%d')
+                                break
+                            except:
+                                continue
+                        else:
+                            birth_date = None
+                    else:
+                        birth_date = None
+                    
+                    # Обработка телефона
+                    phone = row.get(column_mapping.get('phone', ''), '').strip()
+                    if not phone:
+                        phone = None
+                    
+                    # Проверка формата полиса
+                    if len(policy) != 16 or not policy.isdigit():
+                        errors.append(f"Строка {row_num}: неверный формат полиса (должен быть 16 цифр)")
+                        continue
+                    
                     with get_connection() as conn:
+                        # Проверяем, существует ли уже такой полис
+                        existing = conn.execute(
+                            "SELECT id FROM patients WHERE policy_number = ?",
+                            (policy,)
+                        ).fetchone()
+                        
+                        if existing:
+                            errors.append(f"Строка {row_num}: пациент с полисом {policy} уже существует")
+                            continue
+                        
                         conn.execute('''
-                            INSERT OR IGNORE INTO patients (full_name, birth_date, phone, policy_number)
+                            INSERT INTO patients (full_name, birth_date, phone, policy_number)
                             VALUES (?, ?, ?, ?)
-                        ''', (row.get('full_name'), row.get('birth_date'), row.get('phone'), row.get('policy_number')))
+                        ''', (full_name, birth_date, phone, policy))
                         conn.commit()
                         imported += 1
+                        
                 except Exception as e:
-                    errors.append(str(e))
+                    errors.append(f"Строка {row_num}: {str(e)}")
         
-        log_action("IMPORT", f"Imported {imported} patients from {filepath}")
+        log_action("IMPORT", f"Imported {imported} patients from {filepath}, errors: {len(errors)}")
         return True, imported, errors
+        
     except Exception as e:
         log_action("IMPORT_ERROR", f"Error importing patients: {str(e)}")
+        return False, 0, [str(e)]
+
+def import_doctors_from_csv(filepath):
+    """
+    Импортирует врачей из CSV файла.
+    
+    Args:
+        filepath (str): путь к файлу
+    
+    Returns:
+        tuple: (успешно, количество, ошибки)
+    """
+    imported = 0
+    errors = []
+    
+    try:
+        delimiter, encoding, _ = detect_csv_format(filepath)
+        
+        header_mapping = {
+            'full_name': ['full_name', 'ФИО', 'Full Name', 'Имя', 'Врач'],
+            'specialty': ['specialty', 'Специальность', 'Specialty', 'Специализация'],
+            'room_number': ['room_number', 'Кабинет', 'Room Number', 'Каб', 'Room']
+        }
+        
+        with open(filepath, 'r', encoding=encoding) as f:
+            reader = csv.DictReader(f, delimiter=delimiter)
+            
+            if not reader.fieldnames:
+                return False, 0, ["Файл не содержит заголовков"]
+            
+            available_fields = {k.lower(): k for k in reader.fieldnames}
+            
+            column_mapping = {}
+            for db_field, possible_names in header_mapping.items():
+                for name in possible_names:
+                    if name.lower() in available_fields:
+                        column_mapping[db_field] = available_fields[name.lower()]
+                        break
+            
+            if 'full_name' not in column_mapping:
+                return False, 0, ["Файл должен содержать колонку: ФИО"]
+            
+            for row_num, row in enumerate(reader, start=2):
+                try:
+                    full_name = row.get(column_mapping.get('full_name', ''), '').strip()
+                    specialty = row.get(column_mapping.get('specialty', ''), '').strip()
+                    room_number = row.get(column_mapping.get('room_number', ''), '').strip()
+                    
+                    if not full_name:
+                        errors.append(f"Строка {row_num}: отсутствует ФИО")
+                        continue
+                    
+                    with get_connection() as conn:
+                        # Проверяем уникальность кабинета
+                        if room_number:
+                            existing_room = conn.execute(
+                                "SELECT id FROM doctors WHERE room_number = ? AND is_deleted = 0",
+                                (room_number,)
+                            ).fetchone()
+                            if existing_room:
+                                errors.append(f"Строка {row_num}: кабинет {room_number} уже занят")
+                                continue
+                        
+                        # Проверяем, существует ли уже такой врач
+                        existing = conn.execute(
+                            "SELECT id FROM doctors WHERE full_name = ? AND is_deleted = 0",
+                            (full_name,)
+                        ).fetchone()
+                        
+                        if existing:
+                            errors.append(f"Строка {row_num}: врач {full_name} уже существует")
+                            continue
+                        
+                        conn.execute('''
+                            INSERT INTO doctors (full_name, specialty, room_number, is_deleted)
+                            VALUES (?, ?, ?, 0)
+                        ''', (full_name, specialty or None, room_number or None))
+                        conn.commit()
+                        imported += 1
+                        
+                except Exception as e:
+                    errors.append(f"Строка {row_num}: {str(e)}")
+        
+        log_action("IMPORT", f"Imported {imported} doctors from {filepath}, errors: {len(errors)}")
+        return True, imported, errors
+        
+    except Exception as e:
+        log_action("IMPORT_ERROR", f"Error importing doctors: {str(e)}")
+        return False, 0, [str(e)]
+
+def import_appointments_from_csv(filepath):
+    """
+    Импортирует записи на приём из CSV файла.
+    
+    Args:
+        filepath (str): путь к файлу
+    
+    Returns:
+        tuple: (успешно, количество, ошибки)
+    """
+    imported = 0
+    errors = []
+    
+    try:
+        delimiter, encoding, _ = detect_csv_format(filepath)
+        
+        header_mapping = {
+            'patient_name': ['patient_name', 'Пациент', 'ФИО пациента', 'Patient'],
+            'policy_number': ['policy_number', 'Номер полиса', 'Policy'],
+            'doctor_name': ['doctor_name', 'Врач', 'Doctor'],
+            'date': ['date', 'Дата', 'Date'],
+            'time': ['time', 'Время', 'Time'],
+            'status': ['status', 'Статус', 'Status']
+        }
+        
+        with open(filepath, 'r', encoding=encoding) as f:
+            reader = csv.DictReader(f, delimiter=delimiter)
+            
+            if not reader.fieldnames:
+                return False, 0, ["Файл не содержит заголовков"]
+            
+            available_fields = {k.lower(): k for k in reader.fieldnames}
+            
+            column_mapping = {}
+            for db_field, possible_names in header_mapping.items():
+                for name in possible_names:
+                    if name.lower() in available_fields:
+                        column_mapping[db_field] = available_fields[name.lower()]
+                        break
+            
+            required_fields = ['patient_name', 'doctor_name', 'date', 'time']
+            missing = [f for f in required_fields if f not in column_mapping]
+            if missing:
+                return False, 0, [f"Файл должен содержать колонки: {', '.join(missing)}"]
+            
+            for row_num, row in enumerate(reader, start=2):
+                try:
+                    patient_name = row.get(column_mapping.get('patient_name', ''), '').strip()
+                    doctor_name = row.get(column_mapping.get('doctor_name', ''), '').strip()
+                    date_str = row.get(column_mapping.get('date', ''), '').strip()
+                    time_str = row.get(column_mapping.get('time', ''), '').strip()
+                    status = row.get(column_mapping.get('status', ''), '').strip() or 'запланирован'
+                    
+                    if not patient_name or not doctor_name or not date_str or not time_str:
+                        errors.append(f"Строка {row_num}: не все обязательные поля заполнены")
+                        continue
+                    
+                    with get_connection() as conn:
+                        # Находим пациента
+                        patient = conn.execute(
+                            "SELECT id FROM patients WHERE full_name = ?",
+                            (patient_name,)
+                        ).fetchone()
+                        
+                        if not patient:
+                            errors.append(f"Строка {row_num}: пациент '{patient_name}' не найден")
+                            continue
+                        
+                        # Находим врача
+                        doctor = conn.execute(
+                            "SELECT id FROM doctors WHERE full_name = ? AND is_deleted = 0",
+                            (doctor_name,)
+                        ).fetchone()
+                        
+                        if not doctor:
+                            errors.append(f"Строка {row_num}: врач '{doctor_name}' не найден")
+                            continue
+                        
+                        # Преобразуем дату
+                        for date_format in ['%d.%m.%Y', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y']:
+                            try:
+                                date_obj = datetime.strptime(date_str, date_format)
+                                date = date_obj.strftime('%Y-%m-%d')
+                                break
+                            except:
+                                continue
+                        else:
+                            errors.append(f"Строка {row_num}: неверный формат даты")
+                            continue
+                        
+                        # Проверяем, что время в правильном формате
+                        if not re.match(r'^([0-1][0-9]|2[0-3]):[0-5][0-9]$', time_str):
+                            errors.append(f"Строка {row_num}: неверный формат времени (ожидается HH:MM)")
+                            continue
+                        
+                        # Проверяем, не занято ли время
+                        existing = conn.execute('''
+                            SELECT id FROM appointments 
+                            WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'запланирован'
+                        ''', (doctor['id'], date, time_str)).fetchone()
+                        
+                        if existing:
+                            errors.append(f"Строка {row_num}: время {date} {time_str} уже занято")
+                            continue
+                        
+                        conn.execute('''
+                            INSERT INTO appointments 
+                            (patient_id, doctor_id, date, time, status, created_by)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        ''', (patient['id'], doctor['id'], date, time_str, status, 'import'))
+                        conn.commit()
+                        imported += 1
+                        
+                except Exception as e:
+                    errors.append(f"Строка {row_num}: {str(e)}")
+        
+        log_action("IMPORT", f"Imported {imported} appointments from {filepath}, errors: {len(errors)}")
+        return True, imported, errors
+        
+    except Exception as e:
+        log_action("IMPORT_ERROR", f"Error importing appointments: {str(e)}")
         return False, 0, [str(e)]
