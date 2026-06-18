@@ -19,11 +19,13 @@ from gui.gui_doctors import DoctorsTabMixin
 from gui.gui_appointments import AppointmentsTabMixin
 from gui.gui_stats import StatsTabMixin
 from gui.gui_users import UsersTabMixin
+from gui.gui_import_export import ImportExportMixin  # Новый миксин
 from gui.gui_datepicker import DatePicker
 from database.config import DATA_DIR
 
 class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin, 
-                      DoctorsTabMixin, AppointmentsTabMixin, StatsTabMixin, UsersTabMixin):
+                      DoctorsTabMixin, AppointmentsTabMixin, StatsTabMixin, 
+                      UsersTabMixin, ImportExportMixin):  # Добавляем новый миксин
     """
     Главный класс приложения.
     Содержит все методы для создания интерфейса и обработки событий.
@@ -121,6 +123,7 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         
         file_menu.add_separator()
         file_menu.add_command(label="Создать резервную копию", command=self.create_backup)
+        file_menu.add_command(label="Восстановить из бэкапа", command=self.restore_from_backup)
         file_menu.add_separator()
         file_menu.add_command(label="Сменить пользователя", command=self.logout)
         file_menu.add_command(label="Выход", command=self.quit_application)
@@ -152,57 +155,89 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         """Экспорт всех данных"""
         import database as db
         
-        filepath = filedialog.asksaveasfilename(
-            title="Сохранить экспорт данных",
-            defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
-        )
+        # Для врача - предупреждение
+        if self.user['role'] == 'doctor':
+            result = messagebox.askyesno(
+                "Подтверждение экспорта",
+                "Вы экспортируете все данные.\n\n"
+                "ВНИМАНИЕ:\n"
+                "- Пациенты и врачи будут экспортированы полностью\n"
+                "- ЗАПИСИ будут экспортированы ТОЛЬКО ваши\n\n"
+                "Продолжить?"
+            )
+            if not result:
+                return
         
-        if filepath:
-            base_path = filepath.rsplit('.', 1)[0]
-            
-            if db.export_data(base_path, 'all'):
-                messagebox.showinfo("Успех", f"Данные экспортированы в:\n{base_path}_patients.csv\n{base_path}_doctors.csv\n{base_path}_appointments.csv")
-                self.update_status("Все данные экспортированы")
-            else:
-                messagebox.showerror("Ошибка", "Не удалось экспортировать данные")
+        # Выбираем папку для сохранения
+        directory = self.get_export_directory()
+        if not directory:
+            return
+        
+        # Формируем базовое имя файла
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_path = os.path.join(directory, f"export_all_{timestamp}")
+        
+        # Если пользователь врач - экспортируем только его записи
+        doctor_id = None
+        if self.user['role'] == 'doctor':
+            import database as db
+            doctor = db.get_doctor_by_user_id(self.user['id'])
+            if doctor:
+                doctor_id = doctor['id']
+                self.update_status(f"Экспортируются только записи врача {doctor['full_name']}")
+        
+        if db.export_data(base_path, 'all', doctor_id):
+            messagebox.showinfo("Успех", 
+                f"Данные экспортированы в папку:\n{directory}\n\n"
+                f"Созданы файлы:\n"
+                f"- {base_path}_patients.csv\n"
+                f"- {base_path}_doctors.csv\n"
+                f"- {base_path}_appointments.csv")
+            self.update_status("Все данные экспортированы")
+        else:
+            messagebox.showerror("Ошибка", "Не удалось экспортировать данные")
     
     def export_data(self, data_type):
         """Экспорт конкретного типа данных"""
         import database as db
         
-        types_map = {
-            'patients': ('Пациенты', '_patients.csv'),
-            'doctors': ('Врачи', '_doctors.csv'),
-            'appointments': ('Записи', '_appointments.csv')
-        }
+        # Для врача - предупреждение о том, что экспортируются только его записи
+        if self.user['role'] == 'doctor' and data_type == 'appointments':
+            result = messagebox.askyesno(
+                "Подтверждение экспорта",
+                "Вы экспортируете записи.\n\n"
+                "ВНИМАНИЕ: Будут экспортированы ТОЛЬКО ваши записи.\n"
+                "Записи других врачей не будут включены в экспорт.\n\n"
+                "Продолжить?"
+            )
+            if not result:
+                return
         
-        title, suffix = types_map.get(data_type, ('Данные', '.csv'))
+        # Выбираем папку и файл
+        base_path, filepath = self.get_export_filepath(data_type)
+        if not base_path or not filepath:
+            return
         
-        filepath = filedialog.asksaveasfilename(
-            title=f"Экспорт {title}",
-            defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
-        )
+        # Если пользователь врач и экспортируются записи - фильтруем по его ID
+        doctor_id = None
+        if self.user['role'] == 'doctor' and data_type == 'appointments':
+            doctor = db.get_doctor_by_user_id(self.user['id'])
+            if doctor:
+                doctor_id = doctor['id']
+                self.update_status(f"Экспортируются только записи врача {doctor['full_name']}")
         
-        if filepath:
-            base_path = filepath.rsplit('.', 1)[0]
-            
-            if db.export_data(base_path, data_type):
-                messagebox.showinfo("Успех", f"Данные экспортированы в:\n{base_path}{suffix}")
-                self.update_status(f"{title} экспортированы")
-            else:
-                messagebox.showerror("Ошибка", f"Не удалось экспортировать {title}")
+        if db.export_data(base_path, data_type, doctor_id):
+            messagebox.showinfo("Успех", f"Данные экспортированы в:\n{filepath}")
+            self.update_status(f"{self.FILE_TYPES[data_type]['name']} экспортированы")
+        else:
+            messagebox.showerror("Ошибка", f"Не удалось экспортировать {self.FILE_TYPES[data_type]['name']}")
     
     def import_patients(self):
         """Импорт пациентов из CSV с прогресс-баром"""
         import database as db
         
-        filepath = filedialog.askopenfilename(
-            title="Выберите CSV файл для импорта пациентов",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
-        )
-        
+        # Выбираем файл с проверкой
+        filepath = self.get_import_filepath('patients')
         if not filepath:
             return
         
@@ -250,7 +285,7 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
             self.load_stats()
             self.update_status(f"Импортировано {count} пациентов")
             if errors:
-                error_file = "import_errors_patients.log"
+                error_file = f"import_errors_patients_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
                 with open(error_file, "w", encoding='utf-8') as f:
                     f.write("\n".join(errors))
                 messagebox.showwarning("Ошибки импорта", 
@@ -262,16 +297,13 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         """Импорт врачей из CSV"""
         import database as db
         
-        filepath = filedialog.askopenfilename(
-            title="Выберите CSV файл для импорта врачей",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
-        )
-        
-        if not filepath:
-            return
-        
         if self.user['role'] != 'admin':
             messagebox.showerror("Доступ запрещён", "Только администратор может импортировать врачей")
+            return
+        
+        # Выбираем файл с проверкой
+        filepath = self.get_import_filepath('doctors')
+        if not filepath:
             return
         
         progress_window = tk.Toplevel(self.root)
@@ -318,7 +350,7 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
             self.load_stats()
             self.update_status(f"Импортировано {count} врачей")
             if errors:
-                error_file = "import_errors_doctors.log"
+                error_file = f"import_errors_doctors_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
                 with open(error_file, "w", encoding='utf-8') as f:
                     f.write("\n".join(errors))
                 messagebox.showwarning("Ошибки импорта", 
@@ -330,11 +362,8 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
         """Импорт записей из CSV"""
         import database as db
         
-        filepath = filedialog.askopenfilename(
-            title="Выберите CSV файл для импорта записей",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
-        )
-        
+        # Выбираем файл с проверкой
+        filepath = self.get_import_filepath('appointments')
         if not filepath:
             return
         
@@ -380,7 +409,7 @@ class MainApplication(ValidationMixin, DialogsMixin, PatientsTabMixin,
             self.load_stats()
             self.update_status(f"Импортировано {count} записей")
             if errors:
-                error_file = "import_errors_appointments.log"
+                error_file = f"import_errors_appointments_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
                 with open(error_file, "w", encoding='utf-8') as f:
                     f.write("\n".join(errors))
                 messagebox.showwarning("Ошибки импорта", 

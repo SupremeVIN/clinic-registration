@@ -482,7 +482,7 @@ class AppointmentsTabMixin:
             command=self.show_today_appointments
         ).pack(side='right', padx=2)
         
-        # Таблица записей (без колонки "Причина отмены")
+        # Таблица записей
         columns = ('id', 'Пациент', 'Полис', 'Врач', 'Специальность', 'Кабинет', 'Дата', 'Время', 'Статус', 'Кто создал')
         self.appointments_tree = ttk.Treeview(
             tab, 
@@ -590,10 +590,14 @@ class AppointmentsTabMixin:
             
             # Если пользователь врач - показываем только его записи
             doctor_id = None
+            doctor_filter_msg = ""
             if self.user['role'] == 'doctor':
                 doctor = db.get_doctor_by_user_id(self.user['id'])
                 if doctor:
                     doctor_id = doctor['id']
+                    doctor_filter_msg = f" (только врач: {doctor['full_name']})"
+                else:
+                    self.update_status("Ваша учетная запись не привязана к врачу")
             
             appointments = db.get_all_appointments(doctor_id=doctor_id, status=status, date_from=date_from, date_to=date_to)
             
@@ -617,7 +621,7 @@ class AppointmentsTabMixin:
             # Настройка цветов
             self.appointments_tree.tag_configure('cancelled', foreground='red')
             
-            self.update_status(f"Загружено {len(appointments)} записей")
+            self.update_status(f"Загружено {len(appointments)} записей{doctor_filter_msg}")
         except Exception as e:
             self.update_status(f"Ошибка загрузки: {e}")
     

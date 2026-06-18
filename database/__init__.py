@@ -3,7 +3,7 @@
 Экспортирует все основные функции.
 """
 
-from database.connection import get_connection, init_db, verify_database_integrity, backup_database, vacuum_database
+from database.connection import get_connection, init_db, verify_database_integrity, backup_database, vacuum_database, get_backup_list, restore_from_backup
 from database.security import log_action, hash_sensitive_data, sanitize_input
 from database.patients import (
     get_all_patients, search_patients, add_patient, 
@@ -30,6 +30,7 @@ from database.config import DATA_DIR, DB_PATH, AUDIT_LOG_PATH, BACKUP_DIR_PATH, 
 __all__ = [
     # Connection
     'get_connection', 'init_db', 'verify_database_integrity', 'backup_database', 'vacuum_database',
+    'get_backup_list', 'restore_from_backup',
     
     # Security
     'log_action', 'hash_sensitive_data', 'sanitize_input',

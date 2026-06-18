@@ -62,7 +62,10 @@ class DialogsMixin:
         try:
             with open(AUDIT_LOG_PATH, 'r', encoding='utf-8') as f:
                 content = f.read()
-                text_widget.insert('1.0', content)
+                if content:
+                    text_widget.insert('1.0', content)
+                else:
+                    text_widget.insert('1.0', "Журнал аудита пуст")
             text_widget.config(state='disabled')
         except Exception as e:
             text_widget.insert('1.0', f"Ошибка чтения лога: {e}")
@@ -121,6 +124,7 @@ class DialogsMixin:
 • Автоматически при запуске
 • Вручную через меню "Файл"
 • Хранятся в папке data/backups
+• Восстановление через меню "Файл"
 
 АУДИТ:
 • Все действия логируются
@@ -187,6 +191,127 @@ class DialogsMixin:
         backup_file = db.backup_database()
         if backup_file:
             print(f"Автоматический бэкап создан: {backup_file}")
+    
+    def restore_from_backup(self):
+        """Восстанавливает базу данных из выбранной резервной копии"""
+        import database as db
+        
+        # Получаем список бэкапов
+        backups = db.get_backup_list()
+        
+        if not backups:
+            messagebox.showinfo("Восстановление", "Нет доступных резервных копий для восстановления")
+            return
+        
+        # Создаём диалог выбора бэкапа
+        backup_window = tk.Toplevel(self.root)
+        backup_window.title("Восстановление из резервной копии")
+        backup_window.geometry("600x400")
+        backup_window.transient(self.root)
+        backup_window.grab_set()
+        
+        # Центрируем окно
+        backup_window.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - backup_window.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - backup_window.winfo_height()) // 2
+        backup_window.geometry(f"+{x}+{y}")
+        
+        # Заголовок
+        ttk.Label(
+            backup_window, 
+            text="Выберите резервную копию для восстановления", 
+            font=('Arial', 12, 'bold')
+        ).pack(pady=10)
+        
+        ttk.Label(
+            backup_window,
+            text="ВНИМАНИЕ: Текущая база данных будет заменена!",
+            foreground='red'
+        ).pack(pady=5)
+        
+        # Список бэкапов
+        frame = ttk.Frame(backup_window)
+        frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        columns = ('Дата', 'Размер', 'Имя файла')
+        tree = ttk.Treeview(frame, columns=columns, show='headings', height=10)
+        
+        for col in columns:
+            tree.heading(col, text=col)
+        
+        tree.column('Дата', width=150)
+        tree.column('Размер', width=80)
+        tree.column('Имя файла', width=300)
+        
+        scrollbar = ttk.Scrollbar(frame, orient='vertical', command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        
+        tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+        
+        # Заполняем список
+        for backup in backups:
+            size_str = f"{backup['size_kb']} KB" if backup['size_kb'] < 1024 else f"{backup['size_kb'] // 1024} MB"
+            tree.insert('', 'end', values=(
+                backup['date'],
+                size_str,
+                backup['name']
+            ), tags=(backup['path'],))
+        
+        # Кнопки
+        button_frame = ttk.Frame(backup_window)
+        button_frame.pack(pady=10)
+        
+        def do_restore():
+            selection = tree.selection()
+            if not selection:
+                messagebox.showwarning("Предупреждение", "Выберите резервную копию")
+                return
+            
+            item = tree.item(selection[0])
+            backup_path = item['tags'][0]
+            
+            # Подтверждение восстановления
+            if not messagebox.askyesno(
+                "Подтверждение восстановления",
+                f"Восстановить базу данных из бэкапа?\n\n"
+                f"Файл: {item['values'][2]}\n"
+                f"Дата: {item['values'][0]}\n\n"
+                "Текущая база данных будет заменена!\n"
+                "Перед восстановлением будет создана резервная копия текущей базы."
+            ):
+                return
+            
+            # Выполняем восстановление
+            backup_window.destroy()
+            
+            result = db.restore_from_backup(backup_path)
+            
+            if result['success']:
+                messagebox.showinfo(
+                    "Успех",
+                    f"{result['message']}\n\n"
+                    f"Рекомендуется перезапустить программу для полного обновления."
+                )
+                self.update_status("База данных восстановлена из бэкапа")
+                self.refresh_all()
+                
+                # Предлагаем перезапустить программу
+                if messagebox.askyesno(
+                    "Перезапуск",
+                    "Для полного применения изменений рекомендуется перезапустить программу.\n"
+                    "Перезапустить сейчас?"
+                ):
+                    self.root.quit()
+                    self.root.destroy()
+                    import subprocess
+                    import sys
+                    subprocess.Popen([sys.executable, "main.py"])
+            else:
+                messagebox.showerror("Ошибка", f"Не удалось восстановить базу данных:\n{result['message']}")
+        
+        ttk.Button(button_frame, text="Восстановить", command=do_restore, style='Action.TButton', width=15).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Отмена", command=backup_window.destroy, width=15).pack(side='left', padx=5)
     
     def cleanup_database_cache(self):
         """Очищает кэш базы данных (VACUUM)"""

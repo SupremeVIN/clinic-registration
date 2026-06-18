@@ -5,18 +5,31 @@
 import re
 import hashlib
 import logging
+import os
+from pathlib import Path
 from database.config import AUDIT_LOG_PATH, get_salt, ensure_data_dir
 
 # Создаём директорию для данных перед настройкой логирования
 ensure_data_dir()
 
-# Настройка логирования
-logging.basicConfig(
-    filename=AUDIT_LOG_PATH,
-    level=logging.INFO,
-    format='%(asctime)s | %(levelname)s | %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+# Настройка логирования с явной кодировкой и обработкой ошибок
+try:
+    logging.basicConfig(
+        filename=str(AUDIT_LOG_PATH),  # Преобразуем Path в строку для Windows
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        encoding='utf-8'  # Явно указываем кодировку
+    )
+except Exception as e:
+    # Если не удалось настроить логирование в файл, создаём fallback
+    print(f"Предупреждение: Не удалось настроить логирование в файл: {e}")
+    print("Логирование будет выполняться в консоль")
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
 
 def log_action(action, details, user="SYSTEM"):
     """
@@ -27,7 +40,11 @@ def log_action(action, details, user="SYSTEM"):
         details (str): детали действия
         user (str): пользователь (по умолчанию SYSTEM)
     """
-    logging.info(f"{user} | {action} | {details}")
+    try:
+        logging.info(f"{user} | {action} | {details}")
+    except Exception as e:
+        # Если логирование не удалось, выводим в консоль
+        print(f"[AUDIT ERROR] {user} | {action} | {details} | Error: {e}")
 
 def hash_sensitive_data(data):
     """

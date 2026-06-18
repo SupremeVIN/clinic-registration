@@ -353,13 +353,14 @@ def delete_old_appointments(days=30):
         log_action("DB_ERROR", f"Error deleting old appointments: {str(e)}")
         return 0
 
-def export_data(filepath, data_type='all'):
+def export_data(filepath, data_type='all', doctor_id=None):
     """
     Экспортирует данные в CSV файл с правильной кодировкой и форматированием.
     
     Args:
         filepath (str): путь к файлу
         data_type (str): 'patients', 'doctors', 'appointments' или 'all'
+        doctor_id (int): ID врача для фильтрации (опционально)
     
     Returns:
         bool: True при успехе
@@ -448,26 +449,50 @@ def export_data(filepath, data_type='all'):
                 log_action("EXPORT", f"Exported {len(doctors)} doctors to {filepath_doctors}")
             
             if data_type == 'appointments' or data_type == 'all':
-                cursor = conn.execute('''
-                    SELECT 
-                        a.id, 
-                        p.full_name as patient_name,
-                        p.policy_number,
-                        d.full_name as doctor_name,
-                        d.specialty,
-                        d.room_number,
-                        a.date, 
-                        a.time, 
-                        a.status, 
-                        a.created_by,
-                        a.created_at,
-                        a.cancelled_by,
-                        a.cancelled_at
-                    FROM appointments a
-                    JOIN patients p ON a.patient_id = p.id
-                    JOIN doctors d ON a.doctor_id = d.id
-                    ORDER BY a.date DESC, a.time DESC
-                ''')
+                # Если указан doctor_id - экспортируем только его записи
+                if doctor_id:
+                    cursor = conn.execute('''
+                        SELECT 
+                            a.id, 
+                            p.full_name as patient_name,
+                            p.policy_number,
+                            d.full_name as doctor_name,
+                            d.specialty,
+                            d.room_number,
+                            a.date, 
+                            a.time, 
+                            a.status, 
+                            a.created_by,
+                            a.created_at,
+                            a.cancelled_by,
+                            a.cancelled_at
+                        FROM appointments a
+                        JOIN patients p ON a.patient_id = p.id
+                        JOIN doctors d ON a.doctor_id = d.id
+                        WHERE a.doctor_id = ?
+                        ORDER BY a.date DESC, a.time DESC
+                    ''', (doctor_id,))
+                else:
+                    cursor = conn.execute('''
+                        SELECT 
+                            a.id, 
+                            p.full_name as patient_name,
+                            p.policy_number,
+                            d.full_name as doctor_name,
+                            d.specialty,
+                            d.room_number,
+                            a.date, 
+                            a.time, 
+                            a.status, 
+                            a.created_by,
+                            a.created_at,
+                            a.cancelled_by,
+                            a.cancelled_at
+                        FROM appointments a
+                        JOIN patients p ON a.patient_id = p.id
+                        JOIN doctors d ON a.doctor_id = d.id
+                        ORDER BY a.date DESC, a.time DESC
+                    ''')
                 appointments = cursor.fetchall()
                 
                 filepath_appointments = f"{filepath}_appointments.csv"
@@ -529,7 +554,7 @@ def detect_csv_format(filepath):
                         f.seek(0)
                         reader = csv.reader(f, delimiter=delimiter)
                         first_row = next(reader, [])
-                        if len(first_row) >= 2:  # Хотя бы 2 колонки
+                        if len(first_row) >= 2:
                             return delimiter, encoding, first_row
             except:
                 continue
@@ -550,10 +575,8 @@ def import_patients_from_csv(filepath):
     errors = []
     
     try:
-        # Определяем формат файла
-        delimiter, encoding, sample_headers = detect_csv_format(filepath)
+        delimiter, encoding, _ = detect_csv_format(filepath)
         
-        # Словарь соответствия заголовков
         header_mapping = {
             'full_name': ['full_name', 'ФИО', 'Full Name', 'Имя', 'Пациент', 'patient_name'],
             'birth_date': ['birth_date', 'Дата рождения', 'Birth Date', 'Дата', 'Date of birth'],
@@ -567,10 +590,8 @@ def import_patients_from_csv(filepath):
             if not reader.fieldnames:
                 return False, 0, ["Файл не содержит заголовков"]
             
-            # Определяем, какие колонки есть в файле
             available_fields = {k.lower(): k for k in reader.fieldnames}
             
-            # Находим соответствия
             column_mapping = {}
             for db_field, possible_names in header_mapping.items():
                 for name in possible_names:
@@ -590,10 +611,8 @@ def import_patients_from_csv(filepath):
                         errors.append(f"Строка {row_num}: отсутствует ФИО или номер полиса")
                         continue
                     
-                    # Обработка даты рождения
                     birth_date = row.get(column_mapping.get('birth_date', ''), '').strip()
                     if birth_date:
-                        # Пробуем разные форматы даты
                         for date_format in ['%d.%m.%Y', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y']:
                             try:
                                 date_obj = datetime.strptime(birth_date, date_format)
@@ -606,18 +625,15 @@ def import_patients_from_csv(filepath):
                     else:
                         birth_date = None
                     
-                    # Обработка телефона
                     phone = row.get(column_mapping.get('phone', ''), '').strip()
                     if not phone:
                         phone = None
                     
-                    # Проверка формата полиса
                     if len(policy) != 16 or not policy.isdigit():
                         errors.append(f"Строка {row_num}: неверный формат полиса (должен быть 16 цифр)")
                         continue
                     
                     with get_connection() as conn:
-                        # Проверяем, существует ли уже такой полис
                         existing = conn.execute(
                             "SELECT id FROM patients WHERE policy_number = ?",
                             (policy,)
@@ -695,7 +711,6 @@ def import_doctors_from_csv(filepath):
                         continue
                     
                     with get_connection() as conn:
-                        # Проверяем уникальность кабинета
                         if room_number:
                             existing_room = conn.execute(
                                 "SELECT id FROM doctors WHERE room_number = ? AND is_deleted = 0",
@@ -705,7 +720,6 @@ def import_doctors_from_csv(filepath):
                                 errors.append(f"Строка {row_num}: кабинет {room_number} уже занят")
                                 continue
                         
-                        # Проверяем, существует ли уже такой врач
                         existing = conn.execute(
                             "SELECT id FROM doctors WHERE full_name = ? AND is_deleted = 0",
                             (full_name,)
@@ -790,7 +804,6 @@ def import_appointments_from_csv(filepath):
                         continue
                     
                     with get_connection() as conn:
-                        # Находим пациента
                         patient = conn.execute(
                             "SELECT id FROM patients WHERE full_name = ?",
                             (patient_name,)
@@ -800,7 +813,6 @@ def import_appointments_from_csv(filepath):
                             errors.append(f"Строка {row_num}: пациент '{patient_name}' не найден")
                             continue
                         
-                        # Находим врача
                         doctor = conn.execute(
                             "SELECT id FROM doctors WHERE full_name = ? AND is_deleted = 0",
                             (doctor_name,)
@@ -810,7 +822,6 @@ def import_appointments_from_csv(filepath):
                             errors.append(f"Строка {row_num}: врач '{doctor_name}' не найден")
                             continue
                         
-                        # Преобразуем дату
                         for date_format in ['%d.%m.%Y', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y']:
                             try:
                                 date_obj = datetime.strptime(date_str, date_format)
@@ -822,12 +833,10 @@ def import_appointments_from_csv(filepath):
                             errors.append(f"Строка {row_num}: неверный формат даты")
                             continue
                         
-                        # Проверяем, что время в правильном формате
                         if not re.match(r'^([0-1][0-9]|2[0-3]):[0-5][0-9]$', time_str):
                             errors.append(f"Строка {row_num}: неверный формат времени (ожидается HH:MM)")
                             continue
                         
-                        # Проверяем, не занято ли время
                         existing = conn.execute('''
                             SELECT id FROM appointments 
                             WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'запланирован'

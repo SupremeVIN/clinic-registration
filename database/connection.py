@@ -4,6 +4,8 @@
 
 import sqlite3
 import os
+import shutil
+import glob
 from pathlib import Path
 from datetime import datetime
 
@@ -290,7 +292,6 @@ def backup_database():
         backup_file = BACKUP_DIR_PATH / f"clinic_backup_{timestamp}.db"
         
         if os.path.exists(DB_PATH):
-            import shutil
             shutil.copy2(DB_PATH, str(backup_file))
             log_action("BACKUP", f"Created backup: {backup_file}")
             return str(backup_file)
@@ -298,6 +299,120 @@ def backup_database():
         log_action("BACKUP_ERROR", f"Failed to create backup: {str(e)}")
     
     return None
+
+def get_backup_list():
+    """
+    Возвращает список всех доступных резервных копий с информацией о них.
+    
+    Returns:
+        list: список словарей с информацией о бэкапах
+    """
+    ensure_data_dir()
+    backups = []
+    
+    try:
+        backup_files = sorted(
+            BACKUP_DIR_PATH.glob("clinic_backup_*.db"),
+            key=lambda x: x.stat().st_mtime,
+            reverse=True
+        )
+        
+        for backup_path in backup_files:
+            stat = backup_path.stat()
+            size_kb = stat.st_size // 1024
+            
+            # Извлекаем дату из имени файла
+            name = backup_path.name
+            timestamp_str = name.replace("clinic_backup_", "").replace(".db", "")
+            try:
+                backup_date = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+                date_str = backup_date.strftime("%d.%m.%Y %H:%M:%S")
+            except:
+                date_str = "Неизвестно"
+            
+            backups.append({
+                'path': str(backup_path),
+                'name': name,
+                'date': date_str,
+                'size_kb': size_kb,
+                'timestamp': stat.st_mtime
+            })
+        
+        return backups
+    except Exception as e:
+        log_action("BACKUP_LIST_ERROR", f"Error getting backup list: {str(e)}")
+        return []
+
+def restore_from_backup(backup_path):
+    """
+    Восстанавливает базу данных из указанной резервной копии.
+    
+    Args:
+        backup_path (str): путь к файлу бэкапа
+    
+    Returns:
+        dict: результат операции с полями success, message, backup_created
+    """
+    ensure_data_dir()
+    
+    try:
+        backup_path = Path(backup_path)
+        
+        # Проверяем, существует ли файл бэкапа
+        if not backup_path.exists():
+            return {'success': False, 'message': f"Файл бэкапа не найден: {backup_path}"}
+        
+        # Проверяем, что это действительно файл базы данных
+        try:
+            with sqlite3.connect(str(backup_path)) as conn:
+                cursor = conn.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name IN ('patients', 'doctors', 'appointments', 'users')
+                """)
+                tables = cursor.fetchall()
+                if len(tables) != 4:
+                    return {
+                        'success': False, 
+                        'message': f"Файл не является корректной базой данных. Найдено таблиц: {len(tables)} из 4"
+                    }
+        except sqlite3.DatabaseError as e:
+            return {'success': False, 'message': f"Файл повреждён или не является базой данных: {str(e)}"}
+        
+        # Создаём резервную копию текущей базы перед восстановлением
+        current_backup = None
+        if os.path.exists(DB_PATH):
+            current_backup = backup_database()
+        
+        # Если текущая база существует, удаляем её или перемещаем
+        if os.path.exists(DB_PATH):
+            # Перемещаем текущую базу во временный файл
+            temp_backup = BACKUP_DIR_PATH / f"pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+            shutil.move(DB_PATH, str(temp_backup))
+            log_action("RESTORE", f"Moved current database to {temp_backup}")
+        
+        # Копируем бэкап на место основной базы
+        shutil.copy2(str(backup_path), str(DB_PATH))
+        
+        # Проверяем целостность восстановленной базы
+        if not verify_database_integrity():
+            # Если восстановление не удалось, пытаемся вернуть старую базу
+            if os.path.exists(DB_PATH):
+                os.remove(DB_PATH)
+            if os.path.exists(temp_backup):
+                shutil.move(str(temp_backup), str(DB_PATH))
+            return {'success': False, 'message': "Восстановленная база повреждена, выполнена откат"}
+        
+        log_action("RESTORE", f"Restored database from backup: {backup_path}")
+        
+        return {
+            'success': True, 
+            'message': f"База данных восстановлена из бэкапа",
+            'backup_created': current_backup
+        }
+        
+    except Exception as e:
+        log_action("RESTORE_ERROR", f"Error restoring database: {str(e)}")
+        return {'success': False, 'message': f"Ошибка восстановления: {str(e)}"}
 
 def vacuum_database():
     """
